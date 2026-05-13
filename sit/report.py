@@ -179,12 +179,24 @@ def render_report_html(data: dict[str, Any]) -> str:
     ]
 
     if diff is not None:
+        counts = _diff_counts(diff["events"])
         html.extend(
             [
                 '<section class="band">',
                 '<div class="section-head">',
                 "<h2>Semantic Diff</h2>",
                 f'<span class="risk {escape(_token_class(risk))}">{escape(risk)}</span>',
+                "</div>",
+                '<div class="diff-toolbar" aria-label="Semantic diff filters">',
+                '<button type="button" class="filter active" data-filter="all">All '
+                f'<span>{counts["all"]}</span></button>',
+                '<button type="button" class="filter" data-filter="breaking">Breaking '
+                f'<span>{counts["breaking"]}</span></button>',
+                '<button type="button" class="filter" data-filter="changed">Changed '
+                f'<span>{counts["changed"]}</span></button>',
+                '<button type="button" class="filter" data-filter="info">Info '
+                f'<span>{counts["info"]}</span></button>',
+                '<button type="button" class="toggle-long" data-toggle-long>Expand long diff</button>',
                 "</div>",
                 '<div class="timeline">',
                 *_diff_items(diff["events"]),
@@ -204,6 +216,9 @@ def render_report_html(data: dict[str, Any]) -> str:
             escape("\n".join(_repro_commands(data))),
             "</code></pre>",
             "</section>",
+            "<script>",
+            _html_script(),
+            "</script>",
             "</main>",
             "</body>",
             "</html>",
@@ -284,21 +299,88 @@ def _message_section(title: str, messages: list[str], section_class: str) -> str
 
 def _diff_items(events: list[dict[str, Any]]) -> list[str]:
     items: list[str] = []
-    for event in events:
+    for index, event in enumerate(events, start=1):
         severity = _token_class(str(event.get("severity", "info")))
         category = str(event.get("category", "event"))
         message = str(event.get("message", ""))
+        schema_path = _schema_path_from_message(message)
+        long_class = " long" if len(message) > 120 else ""
         items.append(
             "\n".join(
                 [
-                    f'<article class="diff-item {escape(severity)}">',
+                    f'<article class="diff-item {escape(severity)}{long_class}" data-severity="{escape(severity)}">',
+                    '<div class="diff-meta">',
                     f"<span>{escape(category)}</span>",
+                    f"<span>#{index}</span>",
+                    "</div>",
+                    f"{_path_badge(schema_path)}",
                     f"<p>{escape(message)}</p>",
                     "</article>",
                 ]
             )
         )
     return items
+
+
+def _diff_counts(events: list[dict[str, Any]]) -> dict[str, int]:
+    counts = {"all": len(events), "breaking": 0, "changed": 0, "info": 0}
+    for event in events:
+        severity = _token_class(str(event.get("severity", "info")))
+        if severity in counts:
+            counts[severity] += 1
+        else:
+            counts["info"] += 1
+    return counts
+
+
+def _path_badge(path: str | None) -> str:
+    if path is None:
+        return ""
+    return f'<code class="schema-path">{escape(path)}</code>'
+
+
+def _schema_path_from_message(message: str) -> str | None:
+    if not message.startswith("SCHEMA "):
+        return None
+    markers = (
+        " property added ",
+        " property removed ",
+        " property became required ",
+        " property became optional ",
+        " property type changed ",
+        " enum removed values ",
+        " enum added values ",
+        " enum added ",
+        " enum removed ",
+        " additionalProperties restricted ",
+        " additionalProperties relaxed ",
+        " additionalProperties changed ",
+        " constraint changed ",
+        " items added ",
+        " items removed ",
+        " items changed ",
+        " oneOf branch changed ",
+        " oneOf branch added ",
+        " oneOf branch removed ",
+        " oneOf branches reordered ",
+        " allOf branch changed ",
+        " allOf branch added ",
+        " allOf branch removed ",
+        " allOf branches reordered ",
+        " $ref target changed ",
+        " $ref added ",
+        " $ref removed ",
+        " unresolved $ref ",
+    )
+    for marker in markers:
+        if marker not in message:
+            continue
+        tail = message.split(marker, 1)[1]
+        for separator in (" (", ":"):
+            tail = tail.split(separator, 1)[0]
+        tail = tail.strip()
+        return tail if tail and tail != "<root>" else "<root>"
+    return None
 
 
 def _repro_commands(data: dict[str, Any]) -> list[str]:
@@ -462,14 +544,63 @@ h2 {
   display: grid;
   gap: 10px;
 }
+.diff-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.filter, .toggle-long {
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  padding: 0 12px;
+  font: inherit;
+  cursor: pointer;
+}
+.filter span {
+  color: var(--muted);
+  margin-left: 4px;
+}
+.filter.active {
+  color: #fff;
+  background: var(--blue);
+  border-color: var(--blue);
+}
+.filter.active span {
+  color: rgba(255,255,255,.82);
+}
 .diff-item {
   border-left: 4px solid var(--blue);
   padding: 12px 14px;
   background: #fbfcff;
   border-radius: 6px;
 }
+.diff-item.hidden { display: none; }
+.diff-item.long:not(.expanded) p {
+  max-height: 44px;
+  overflow: hidden;
+}
 .diff-item.breaking { border-color: var(--red); }
 .diff-item.changed { border-color: var(--amber); }
+.diff-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.schema-path {
+  display: inline-block;
+  margin-top: 8px;
+  max-width: 100%;
+  padding: 4px 7px;
+  color: #24364b;
+  background: #eef3fb;
+  border: 1px solid #d7e1ef;
+  border-radius: 5px;
+  overflow-wrap: anywhere;
+}
 .diff-item p {
   margin: 5px 0 0;
   overflow-wrap: anywhere;
@@ -497,4 +628,27 @@ code {
     font-size: 32px;
   }
 }
+""".strip()
+
+
+def _html_script() -> str:
+    return """
+document.querySelectorAll('[data-filter]').forEach((button) => {
+  button.addEventListener('click', () => {
+    const filter = button.dataset.filter;
+    document.querySelectorAll('[data-filter]').forEach((item) => item.classList.remove('active'));
+    button.classList.add('active');
+    document.querySelectorAll('.diff-item').forEach((item) => {
+      item.classList.toggle('hidden', filter !== 'all' && item.dataset.severity !== filter);
+    });
+  });
+});
+document.querySelectorAll('[data-toggle-long]').forEach((button) => {
+  button.addEventListener('click', () => {
+    const expand = button.dataset.expanded !== 'true';
+    button.dataset.expanded = String(expand);
+    button.textContent = expand ? 'Collapse long diff' : 'Expand long diff';
+    document.querySelectorAll('.diff-item.long').forEach((item) => item.classList.toggle('expanded', expand));
+  });
+});
 """.strip()

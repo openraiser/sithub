@@ -145,28 +145,28 @@ python3 -m sit.cli --version
 - `sit test` 支持 `schema_only`、`exact`、`partial`、`contains` match mode，旧 golden 默认兼容为 `schema_only`。
 - `sit commit` / `sit release` 能在有 Git HEAD 基线时阻断低于语义 diff 要求的 version bump，并支持 `--no-version-gate` 显式绕过。
 - `sit test --format json` 输出 `sit.test.v1`；`sit report --format json` 输出 `sit.report.v1`；`sit info --format json` 输出 `sit.info.v1`。
-- `sit report --format html` 能生成可视化静态 dashboard，example 报告位于 `examples/paper-taxonomy-mapper-v0.2.0/reports/visual-v0.1.0-to-v0.2.0.html`。
+- `sit report --format html` 能生成可视化静态 dashboard，支持风险筛选、长 diff 折叠/展开和复杂 schema path 展示；example 报告位于 `examples/paper-taxonomy-mapper-v0.2.0/reports/visual-v0.1.0-to-v0.2.0.html`。
 - `sit ci-summary --compare origin/main..HEAD` 能从 report payload 生成 GitHub Actions Markdown summary；`sit ci-summary --baseline-ref ... --head-ref ... --package-dir ... --artifact-dir ...` 能支持仓库子目录包和 CI artifact。
 - `sit init` 的 workflow 已自动写入 `$GITHUB_STEP_SUMMARY`，并在 `always()` 下上传 JSON/Markdown/HTML report artifact。
 - version gate 阻断信息包含原因、修复建议和关键语义变更；release CHANGELOG/report 包含风险、gate、验证/测试和语义变更摘要。
 - 临时 Git repo 中的 `HEAD~1..HEAD` 测试覆盖了 `diff`、`pr-summary`、`report --compare`，并覆盖了仓库子目录中的 Skill Package。
 - 单元测试 27 项通过。
 - compileall 通过。
-- CLI 版本为 `0.13.0`。
+- CLI 版本为 `0.14.0`。
 
 ## 6. 下一轮实现计划
 
-### Step 1: HTML report 交互增强
-
-- 按风险筛选语义 diff
-- 折叠长 diff
-- 更清晰展示复杂 schema path
-
-### Step 2: 更复杂 schema 结构扩展
+### Step 1: 更复杂 schema 结构扩展
 
 - `anyOf`
 - 跨文件 `$ref`
 - 远程 `$ref` 的可控降级策略
+
+### Step 2: release artifact 增强
+
+- 稳定 release bundle
+- 校验摘要
+- 可复现归档
 
 ## 7. 当前非目标
 
@@ -199,4 +199,4 @@ sit pr-summary main..HEAD
 sit release minor
 ```
 
-下一步进入 HTML report 交互增强：优先支持按风险筛选、折叠长 diff 和更清晰的复杂 schema path 展示，让可视化反馈更适合真实 PR 评审。
+下一步进入更复杂 schema 结构扩展：优先评估 `anyOf`、跨文件 `$ref` 和远程 `$ref` 的可控降级策略，继续降低 schema 变化逃逸风险。

@@ -182,6 +182,10 @@ class CliTest(unittest.TestCase):
             self.assertIn("breaking-change", html)
             self.assertIn("Suggested bump", html)
             self.assertIn("SCHEMA output property added confidence", html)
+            self.assertIn('data-filter="breaking"', html)
+            self.assertIn("Expand long diff", html)
+            self.assertIn('class="schema-path"', html)
+            self.assertIn("document.querySelectorAll", html)
 
     def test_ci_summary_outputs_markdown_with_diff(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
