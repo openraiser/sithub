@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["paper_type", "research_area", "evidence", "confidence"],
+  "properties": {
+    "paper_type": {
+      "type": "string",
+      "enum": ["survey", "benchmark", "method", "evaluation", "dataset"]
+    },
+    "research_area": {
+      "type": "string",
+      "enum": [
+        "retrieval_augmented_generation",
+        "long_context_reasoning",
+        "agent_tool_use",
+        "model_evaluation",
+        "data_curation",
+        "other"
+      ]
+    },
+    "evidence": {
+      "type": "string",
+      "minLength": 1
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["low", "medium", "high"]
+    },
+    "notes": {
+      "type": "string"
+    }
+  }
+}

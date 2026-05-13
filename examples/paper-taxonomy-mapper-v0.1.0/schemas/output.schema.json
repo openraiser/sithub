@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["paper_type"],
+  "properties": {
+    "paper_type": {
+      "type": "string",
+      "enum": ["survey", "benchmark", "method", "evaluation", "dataset"]
+    },
+    "notes": {
+      "type": "string"
+    }
+  }
+}

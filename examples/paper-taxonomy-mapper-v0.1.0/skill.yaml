@@ -1,0 +1,21 @@
+name: paper-taxonomy-mapper
+version: 0.1.0
+description: Classify AI research paper snippets into a compact taxonomy.
+
+prompts:
+  classify: prompts/classify.md
+
+schemas:
+  output: schemas/output.schema.json
+
+tests:
+  golden: tests/golden.jsonl
+
+runtime:
+  model: configurable
+  temperature: 0
+
+tags:
+  - research
+  - taxonomy
+  - example

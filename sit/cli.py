@@ -1,0 +1,371 @@
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+from . import __version__
+from .ci import render_ci_summary
+from .diff import diff_packages
+from .errors import SitError
+from .gate import check_version_gate_against_head, format_gate_failure
+from .git import run_git
+from .init import init_package
+from .info import build_info_payload, render_info_text
+from .package import load_package
+from .release import release_package
+from .ref import load_compare_package, load_package_pair, parse_git_range
+from .report import build_report, build_report_payload, render_report_html
+from .summary import build_pr_summary, build_pr_summary_payload, build_pr_summary_text
+from .validate import build_test_payload, run_golden_schema_tests, validate_package
+
+GIT_PASSTHROUGH_COMMANDS = {"add", "push", "pull", "branch", "checkout", "log"}
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv and argv[0] in GIT_PASSTHROUGH_COMMANDS:
+        return cmd_git(argparse.Namespace(git_command=argv[0], git_args=argv[1:]))
+
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+
+    try:
+        return args.func(args)
+    except SitError as exc:
+        print(f"sit: error: {exc}", file=sys.stderr)
+        return 2
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    package = load_package(args.package)
+
+    print(f"Package: {package.name or '<unknown>'}")
+    print(f"Version: {package.version or '<unknown>'}")
+    if package.description:
+        print(f"Description: {package.description}")
+    print(f"Root: {package.root}")
+    print(f"Manifest: {package.manifest_path}")
+    print()
+
+    _print_path_group("Prompts", package.prompt_paths())
+    _print_path_group("Schemas", package.schema_paths())
+    _print_path_group("Tests", package.test_paths())
+    report_dir = package.report_dir()
+    marker = "exists" if report_dir.exists() else "missing"
+    print(f"Reports: {marker} {report_dir}")
+    return 0
+
+
+def cmd_info(args: argparse.Namespace) -> int:
+    package = load_package(args.package)
+    payload = build_info_payload(package)
+    if args.format == "json":
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        print(render_info_text(payload), end="")
+    return 0
+
+
+def cmd_validate(args: argparse.Namespace) -> int:
+    package = load_package(args.package)
+    result = validate_package(package)
+    for message in result.messages:
+        print(message)
+    return 0 if result.ok else 1
+
+
+def cmd_test(args: argparse.Namespace) -> int:
+    package = load_package(args.package)
+    if args.format == "json":
+        payload = build_test_payload(package)
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0 if payload["validation"]["ok"] and payload["golden_tests"]["ok"] else 1
+
+    validation = validate_package(package)
+    if not validation.ok:
+        for message in validation.messages:
+            print(message)
+        return 1
+
+    result = run_golden_schema_tests(package)
+    for message in result.messages:
+        print(message)
+    return 0 if result.ok else 1
+
+
+def cmd_diff(args: argparse.Namespace) -> int:
+    git_range = parse_git_range(args.old) if args.new is None else None
+    with load_package_pair(args.old, args.new) as (old, new):
+        result = diff_packages(old, new)
+        print(
+            _render_diff(
+                result,
+                old,
+                new,
+                args.format,
+                old_source=git_range.old if git_range else args.old,
+                new_source=git_range.new if git_range else args.new,
+            ),
+            end="",
+        )
+    return 0
+
+
+def cmd_report(args: argparse.Namespace) -> int:
+    compare_range = parse_git_range(args.compare)
+    with load_compare_package(args.package, args.compare) as (package, compare):
+        package_spec = "." if compare_range else None
+        diff_command = f"python3 -m sit.cli diff {args.compare}" if compare_range else None
+        if args.format == "json":
+            content = json.dumps(
+                build_report_payload(package, compare=compare, package_spec=package_spec, diff_command=diff_command),
+                ensure_ascii=False,
+                indent=2,
+            ) + "\n"
+        elif args.format == "html":
+            content = render_report_html(
+                build_report_payload(package, compare=compare, package_spec=package_spec, diff_command=diff_command)
+            )
+        else:
+            content = build_report(package, compare=compare, package_spec=package_spec, diff_command=diff_command)
+
+    if args.output:
+        output = Path(args.output).expanduser().resolve()
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(content, encoding="utf-8")
+        print(f"Wrote report: {output}")
+    else:
+        print(content, end="")
+    return 0
+
+
+def cmd_ci_summary(args: argparse.Namespace) -> int:
+    compare_range = parse_git_range(args.compare)
+    with load_compare_package(args.package, args.compare) as (package, compare):
+        package_spec = "." if compare_range else None
+        diff_command = f"python3 -m sit.cli diff {args.compare}" if compare_range else None
+        content = render_ci_summary(
+            build_report_payload(package, compare=compare, package_spec=package_spec, diff_command=diff_command)
+        )
+
+    if args.output:
+        output = Path(args.output).expanduser().resolve()
+        output.parent.mkdir(parents=True, exist_ok=True)
+        if args.append:
+            with output.open("a", encoding="utf-8") as handle:
+                handle.write(content)
+        else:
+            output.write_text(content, encoding="utf-8")
+        print(f"Wrote CI summary: {output}")
+    else:
+        print(content, end="")
+    return 0
+
+
+def cmd_init(args: argparse.Namespace) -> int:
+    root = init_package(args.name, path=args.path, no_git=args.no_git)
+    print(f"Initialized Skill Package: {root}")
+    return 0
+
+
+def cmd_git(args: argparse.Namespace) -> int:
+    return run_git([args.git_command, *args.git_args], check=False)
+
+
+def cmd_commit(args: argparse.Namespace) -> int:
+    if not args.no_verify:
+        package = load_package(args.package)
+        validation = validate_package(package)
+        for message in validation.messages:
+            print(message)
+        if not validation.ok:
+            raise SitError("commit blocked: validation failed")
+
+        if not args.no_test:
+            tests = run_golden_schema_tests(package)
+            for message in tests.messages:
+                print(message)
+            if not tests.ok:
+                raise SitError("commit blocked: golden tests failed")
+
+        if not args.no_version_gate:
+            gate = check_version_gate_against_head(package)
+            print(gate.message)
+            if not gate.ok:
+                raise SitError(format_gate_failure(gate))
+
+    git_args = ["commit"]
+    if args.message:
+        git_args.extend(["-m", args.message])
+    git_args.extend(args.git_args)
+    return run_git(git_args, check=False)
+
+
+def cmd_pr_summary(args: argparse.Namespace) -> int:
+    git_range = parse_git_range(args.old) if args.new is None else None
+    with load_package_pair(args.old, args.new) as (old, new):
+        content = _render_pr_summary(
+            old,
+            new,
+            args.format,
+            current_spec="." if git_range else None,
+            diff_command=f"sit diff {args.old}" if git_range else None,
+            baseline_source=git_range.old if git_range else args.old,
+            current_source=git_range.new if git_range else args.new,
+        )
+
+    if args.output:
+        output = Path(args.output).expanduser().resolve()
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(content, encoding="utf-8")
+        print(f"Wrote PR summary: {output}")
+    else:
+        print(content, end="")
+    return 0
+
+
+def cmd_release(args: argparse.Namespace) -> int:
+    package = load_package(args.package)
+    print(release_package(package, args.bump, no_git_tag=args.no_git_tag, no_version_gate=args.no_version_gate))
+    return 0
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="sit", description="Skill Iteration Toolkit CLI")
+    parser.add_argument("--version", action="version", version=f"sit {__version__}")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    init = subparsers.add_parser("init", help="Create a Skill Package scaffold and optionally initialize Git")
+    init.add_argument("name", help="Skill Package name")
+    init.add_argument("--path", help="Target directory; defaults to ./<name>")
+    init.add_argument("--no-git", action="store_true", help="Do not run git init in the new package")
+    init.set_defaults(func=cmd_init)
+
+    status = subparsers.add_parser("status", help="Show Skill Package manifest and file status")
+    status.add_argument("package", nargs="?", default=".", help="Skill Package directory or skill.yaml")
+    status.set_defaults(func=cmd_status)
+
+    info = subparsers.add_parser("info", help="Show a full Skill Package state snapshot")
+    info.add_argument("package", nargs="?", default=".", help="Skill Package directory or skill.yaml")
+    info.add_argument("--format", choices=["text", "json"], default="text", help="Output format")
+    info.set_defaults(func=cmd_info)
+
+    validate = subparsers.add_parser("validate", help="Validate manifest paths, schemas, and golden JSONL")
+    validate.add_argument("package", nargs="?", default=".", help="Skill Package directory or skill.yaml")
+    validate.set_defaults(func=cmd_validate)
+
+    test = subparsers.add_parser("test", help="Run deterministic golden expected-vs-schema tests")
+    test.add_argument("package", nargs="?", default=".", help="Skill Package directory or skill.yaml")
+    test.add_argument("--format", choices=["text", "json"], default="text", help="Output format")
+    test.set_defaults(func=cmd_test)
+
+    diff = subparsers.add_parser("diff", help="Compare two Skill Package directories or a Git range")
+    diff.add_argument("old", help="Baseline Skill Package directory, skill.yaml, or Git range such as main..HEAD")
+    diff.add_argument("new", nargs="?", help="Current Skill Package directory or skill.yaml")
+    diff.add_argument("--format", choices=["text", "markdown", "json"], default="text", help="Output format")
+    diff.set_defaults(func=cmd_diff)
+
+    report = subparsers.add_parser("report", help="Generate a validation, test, and reproducibility report")
+    report.add_argument("package", nargs="?", default=".", help="Skill Package directory or skill.yaml")
+    report.add_argument("--compare", help="Optional baseline Skill Package or Git range such as main..HEAD")
+    report.add_argument("--format", choices=["markdown", "json", "html"], default="markdown", help="Output format")
+    report.add_argument("-o", "--output", help="Write report to this path instead of stdout")
+    report.set_defaults(func=cmd_report)
+
+    ci_summary = subparsers.add_parser("ci-summary", help="Generate a Markdown summary for GitHub Actions")
+    ci_summary.add_argument("package", nargs="?", default=".", help="Skill Package directory or skill.yaml")
+    ci_summary.add_argument("--compare", help="Optional baseline Skill Package or Git range such as origin/main..HEAD")
+    ci_summary.add_argument("-o", "--output", help="Write Markdown summary to this path instead of stdout")
+    ci_summary.add_argument("--append", action="store_true", help="Append to --output instead of replacing it")
+    ci_summary.set_defaults(func=cmd_ci_summary)
+
+    pr_summary = subparsers.add_parser("pr-summary", help="Generate a Markdown Skill PR summary")
+    pr_summary.add_argument("old", help="Baseline Skill Package directory, skill.yaml, or Git range such as main..HEAD")
+    pr_summary.add_argument("new", nargs="?", help="Current Skill Package directory or skill.yaml")
+    pr_summary.add_argument("--format", choices=["markdown", "text", "json"], default="markdown", help="Output format")
+    pr_summary.add_argument("-o", "--output", help="Write summary to this path instead of stdout")
+    pr_summary.set_defaults(func=cmd_pr_summary)
+
+    release = subparsers.add_parser("release", help="Bump package version, write release report, and tag with Git")
+    release.add_argument("bump", choices=["patch", "minor", "major"], help="Semantic version bump")
+    release.add_argument("package", nargs="?", default=".", help="Skill Package directory or skill.yaml")
+    release.add_argument("--no-git-tag", action="store_true", help="Skip creating an annotated Git tag")
+    release.add_argument("--no-version-gate", action="store_true", help="Skip semantic diff versus version bump consistency check")
+    release.set_defaults(func=cmd_release)
+
+    for git_command in ("add", "push", "pull", "branch", "checkout", "log"):
+        git_parser = subparsers.add_parser(git_command, help=f"Pass through to git {git_command}")
+        git_parser.add_argument("git_args", nargs=argparse.REMAINDER)
+        git_parser.set_defaults(func=cmd_git, git_command=git_command)
+
+    commit = subparsers.add_parser("commit", help="Validate/test the Skill Package, then pass through to git commit")
+    commit.add_argument("-m", "--message", help="Commit message")
+    commit.add_argument("--package", default=".", help="Skill Package to validate before committing")
+    commit.add_argument("--no-test", action="store_true", help="Skip golden tests before committing")
+    commit.add_argument("--no-version-gate", action="store_true", help="Skip semantic diff versus version bump consistency check")
+    commit.add_argument("--no-verify", action="store_true", help="Skip sit validation and tests")
+    commit.add_argument("git_args", nargs=argparse.REMAINDER)
+    commit.set_defaults(func=cmd_commit)
+
+    return parser
+
+
+def _print_path_group(title: str, paths: dict[str, Path]) -> None:
+    print(f"{title}:")
+    if not paths:
+        print("  <none>")
+        return
+    for name, path in paths.items():
+        marker = "exists" if path.exists() else "missing"
+        print(f"  {name}: {marker} {path}")
+
+
+def _render_diff(result, old, new, output_format: str, *, old_source: str | None = None, new_source: str | None = None) -> str:
+    if output_format == "json":
+        return json.dumps(
+            result.to_dict(old, new, old_source=old_source, new_source=new_source),
+            ensure_ascii=False,
+            indent=2,
+        ) + "\n"
+    if output_format == "markdown":
+        lines = [
+            "## Skill Diff",
+            "",
+            f"- Baseline: `{old.name or '<unknown>'}@{old.version or '<unknown>'}`",
+            f"- Current: `{new.name or '<unknown>'}@{new.version or '<unknown>'}`",
+            f"- Risk: `{result.risk}`",
+            f"- Suggested version bump: `{result.suggested_bump}`",
+            "",
+            "### Events",
+            "",
+        ]
+        lines.extend(f"- `{message}`" for message in result.messages)
+        return "\n".join(lines) + "\n"
+    return "\n".join(result.messages) + "\n"
+
+
+def _render_pr_summary(
+    old,
+    new,
+    output_format: str,
+    *,
+    current_spec: str | None = None,
+    diff_command: str | None = None,
+    baseline_source: str | None = None,
+    current_source: str | None = None,
+) -> str:
+    if output_format == "json":
+        return json.dumps(
+            build_pr_summary_payload(old, new, baseline_source=baseline_source, current_source=current_source),
+            ensure_ascii=False,
+            indent=2,
+        ) + "\n"
+    if output_format == "text":
+        return build_pr_summary_text(old, new)
+    return build_pr_summary(old, new, current_spec=current_spec, diff_command=diff_command)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
