@@ -31,6 +31,7 @@ The completed local loop now includes:
 - machine-readable status outputs: `sit test --format json`, `sit report --format json`, `sit info --format json`
 - visual report output: `sit report --format html`
 - GitHub Actions summary: `sit ci-summary --compare origin/main..HEAD`
+- CI configuration for custom baseline refs, package subdirectories, and failure artifacts
 - recursive schema diff and golden test match modes
 - complex schema diff for `oneOf`, `allOf`, and local `$ref`
 - commit/release version gate for breaking-change and version bump consistency
@@ -38,8 +39,8 @@ The completed local loop now includes:
 
 The next CLI milestone should focus on:
 
-- CI configuration enhancements: custom baseline ref, package subdirectory, failure artifacts
 - HTML report interaction enhancements: risk filters and collapsible long diffs
+- broader schema coverage: `anyOf`, cross-file `$ref`, and remote `$ref`
 
 The first validation packages are local generic examples:
 

@@ -104,7 +104,7 @@ sit pr-summary main..HEAD --format json
 | `sit info` | 已实现 `text/json` 全景状态 | 后续接入更多风险信号 |
 | Git 风格入口 | 已实现基础透传和 Git ref 感知 | 增加更友好的错误 |
 | commit gate | 已实现 validate/test/version gate | 后续补更友好的阻断解释 |
-| PR/CI 协作 | 已支持 PR summary、CI summary、`main..HEAD` 和 `--format json` | 支持自定义 CI baseline/package 子目录 |
+| PR/CI 协作 | 已支持 PR summary、CI summary、`main..HEAD`、自定义 baseline/head ref、package 子目录和失败 artifact | 后续优化 GitHub 展示交互 |
 | release | 已实现 bump/report/tag/version gate/release note 基础版 | 继续丰富 release artifact |
 | Git ref diff | 已实现第一版 | 支持包子目录和更多 range 形式 |
 | 递归 schema diff | 已实现 nested object、array、constraint、`oneOf`、`allOf`、本地 `$ref` 第一版 | 后续评估 `anyOf`、跨文件 `$ref` 和远程 `$ref` |
@@ -146,26 +146,27 @@ python3 -m sit.cli --version
 - `sit commit` / `sit release` 能在有 Git HEAD 基线时阻断低于语义 diff 要求的 version bump，并支持 `--no-version-gate` 显式绕过。
 - `sit test --format json` 输出 `sit.test.v1`；`sit report --format json` 输出 `sit.report.v1`；`sit info --format json` 输出 `sit.info.v1`。
 - `sit report --format html` 能生成可视化静态 dashboard，example 报告位于 `examples/paper-taxonomy-mapper-v0.2.0/reports/visual-v0.1.0-to-v0.2.0.html`。
-- `sit ci-summary --compare origin/main..HEAD` 能从 report payload 生成 GitHub Actions Markdown summary；`sit init` 的 workflow 已自动写入 `$GITHUB_STEP_SUMMARY`。
+- `sit ci-summary --compare origin/main..HEAD` 能从 report payload 生成 GitHub Actions Markdown summary；`sit ci-summary --baseline-ref ... --head-ref ... --package-dir ... --artifact-dir ...` 能支持仓库子目录包和 CI artifact。
+- `sit init` 的 workflow 已自动写入 `$GITHUB_STEP_SUMMARY`，并在 `always()` 下上传 JSON/Markdown/HTML report artifact。
 - version gate 阻断信息包含原因、修复建议和关键语义变更；release CHANGELOG/report 包含风险、gate、验证/测试和语义变更摘要。
 - 临时 Git repo 中的 `HEAD~1..HEAD` 测试覆盖了 `diff`、`pr-summary`、`report --compare`，并覆盖了仓库子目录中的 Skill Package。
-- 单元测试 26 项通过。
+- 单元测试 27 项通过。
 - compileall 通过。
-- CLI 版本为 `0.12.0`。
+- CLI 版本为 `0.13.0`。
 
 ## 6. 下一轮实现计划
 
-### Step 1: CI 配置增强
-
-- 支持自定义 baseline ref
-- 支持 package 子目录
-- 失败时保留 JSON/report artifact
-
-### Step 2: HTML report 交互增强
+### Step 1: HTML report 交互增强
 
 - 按风险筛选语义 diff
 - 折叠长 diff
 - 更清晰展示复杂 schema path
+
+### Step 2: 更复杂 schema 结构扩展
+
+- `anyOf`
+- 跨文件 `$ref`
+- 远程 `$ref` 的可控降级策略
 
 ## 7. 当前非目标
 
@@ -198,4 +199,4 @@ sit pr-summary main..HEAD
 sit release minor
 ```
 
-下一步进入 CI 配置增强：优先支持自定义 baseline ref、package 子目录和失败 artifact，避免 GitHub PR 中的语义反馈依赖固定仓库布局。
+下一步进入 HTML report 交互增强：优先支持按风险筛选、折叠长 diff 和更清晰的复杂 schema path 展示，让可视化反馈更适合真实 PR 评审。

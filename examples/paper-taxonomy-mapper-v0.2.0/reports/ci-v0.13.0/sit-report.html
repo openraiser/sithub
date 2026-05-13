@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>paper-taxonomy-mapper 0.2.0 SitHub Report</title>
+<style>
+:root {
+  color-scheme: light;
+  --ink: #17202a;
+  --muted: #5b6472;
+  --line: #d9dee7;
+  --paper: #f7f8fb;
+  --panel: #ffffff;
+  --blue: #2457d6;
+  --green: #147d64;
+  --red: #b42318;
+  --amber: #a05a00;
+  --violet: #7047a8;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: var(--ink);
+  background: var(--paper);
+  letter-spacing: 0;
+}
+.page {
+  width: min(1180px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 28px 0 48px;
+}
+.hero {
+  min-height: 240px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 380px);
+  gap: 24px;
+  align-items: stretch;
+  padding: 32px;
+  color: #fff;
+  background:
+    linear-gradient(120deg, rgba(23, 32, 42, .88), rgba(36, 87, 214, .74)),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='960' height='360' viewBox='0 0 960 360'%3E%3Crect width='960' height='360' fill='%23222f3e'/%3E%3Cg fill='none' stroke='%23ffffff' stroke-opacity='.18'%3E%3Cpath d='M80 270 C180 170 260 210 350 110 S560 80 660 160 790 280 900 110' stroke-width='5'/%3E%3Cpath d='M60 100 H900 M60 180 H900 M60 260 H900'/%3E%3Cpath d='M160 40 V320 M360 40 V320 M560 40 V320 M760 40 V320'/%3E%3C/g%3E%3Cg fill='%23ffffff' fill-opacity='.92'%3E%3Ccircle cx='350' cy='110' r='9'/%3E%3Ccircle cx='660' cy='160' r='9'/%3E%3Ccircle cx='900' cy='110' r='9'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: cover;
+  background-position: center;
+  border-radius: 8px;
+}
+.hero h1 {
+  margin: 0;
+  font-size: 42px;
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+}
+.eyebrow, .subtitle {
+  margin: 0 0 12px;
+  color: rgba(255,255,255,.78);
+}
+.subtitle { margin-top: 14px; }
+.risk-panel {
+  align-self: end;
+  display: grid;
+  gap: 10px;
+  min-height: 150px;
+  padding: 20px;
+  background: rgba(255,255,255,.12);
+  border: 1px solid rgba(255,255,255,.24);
+  border-radius: 8px;
+}
+.panel-label { color: rgba(255,255,255,.76); }
+.risk-panel strong { font-size: 28px; line-height: 1.1; }
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin: 18px 0;
+}
+.metric, .band {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.metric {
+  min-height: 112px;
+  padding: 18px;
+  display: grid;
+  align-content: space-between;
+}
+.metric span, .section-head span, .diff-item span {
+  color: var(--muted);
+  font-size: 13px;
+}
+.metric strong {
+  font-size: 25px;
+  overflow-wrap: anywhere;
+}
+.pass { color: var(--green); }
+.fail, .breaking, .breaking-change { color: var(--red); }
+.changed, .review-required { color: var(--amber); }
+.neutral, .info, .no-change, .no-compare { color: var(--blue); }
+.band {
+  padding: 22px;
+  margin-top: 18px;
+}
+.compact { margin-top: 0; }
+.section-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+h2 {
+  margin: 0;
+  font-size: 20px;
+}
+.progress {
+  height: 14px;
+  overflow: hidden;
+  background: #e9edf3;
+  border-radius: 999px;
+}
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--green), var(--blue));
+}
+.columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  margin-top: 18px;
+}
+.message-list {
+  margin: 14px 0 0;
+  padding-left: 18px;
+}
+.message-list li {
+  margin: 8px 0;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.timeline {
+  display: grid;
+  gap: 10px;
+}
+.diff-item {
+  border-left: 4px solid var(--blue);
+  padding: 12px 14px;
+  background: #fbfcff;
+  border-radius: 6px;
+}
+.diff-item.breaking { border-color: var(--red); }
+.diff-item.changed { border-color: var(--amber); }
+.diff-item p {
+  margin: 5px 0 0;
+  overflow-wrap: anywhere;
+}
+pre {
+  margin: 0;
+  padding: 16px;
+  overflow: auto;
+  background: #15202b;
+  color: #edf3f8;
+  border-radius: 8px;
+}
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+}
+@media (max-width: 820px) {
+  .hero, .metrics, .columns {
+    grid-template-columns: 1fr;
+  }
+  .hero {
+    padding: 24px;
+  }
+  .hero h1 {
+    font-size: 32px;
+  }
+}
+</style>
+</head>
+<body>
+<main class="page">
+<section class="hero">
+<div class="hero-copy">
+<p class="eyebrow">SitHub semantic control report</p>
+<h1>paper-taxonomy-mapper</h1>
+<p class="subtitle">Version 0.2.0 - 2026-05-13</p>
+</div>
+<div class="risk-panel">
+<span class="panel-label">Diff risk</span>
+<strong class="risk breaking-change">breaking-change</strong>
+<span>Suggested bump: <b>major</b></span>
+</div>
+</section>
+<section class="metrics" aria-label="Status metrics">
+<div class="metric">
+<span>Validation</span>
+<strong class="pass">pass</strong>
+</div>
+<div class="metric">
+<span>Golden Tests</span>
+<strong class="pass">pass</strong>
+</div>
+<div class="metric">
+<span>Cases Passed</span>
+<strong class="pass">3/3</strong>
+</div>
+<div class="metric">
+<span>Version Bump</span>
+<strong class="neutral">major</strong>
+</div>
+</section>
+<section class="band">
+<div class="section-head">
+<h2>Golden Test Progress</h2>
+<span>3/3</span>
+</div>
+<div class="progress" aria-label="Golden test pass rate">
+<div class="progress-fill" style="width: 100%"></div>
+</div>
+</section>
+<section class="columns">
+<section class="band compact validation">
+<h2>Validation</h2>
+<ul class="message-list">
+<li>OK  name: paper-taxonomy-mapper</li>
+<li>OK  version: 0.2.0</li>
+<li>OK  manifest exists: /mnt/shared-storage-user/xuxinglong-p/SitHub/examples/paper-taxonomy-mapper-v0.2.0/skill.yaml</li>
+<li>OK  prompt.classify exists: /mnt/shared-storage-user/xuxinglong-p/SitHub/examples/paper-taxonomy-mapper-v0.2.0/prompts/classify.md</li>
+<li>OK  schema.output exists: /mnt/shared-storage-user/xuxinglong-p/SitHub/examples/paper-taxonomy-mapper-v0.2.0/schemas/output.schema.json</li>
+<li>OK  test.golden exists: /mnt/shared-storage-user/xuxinglong-p/SitHub/examples/paper-taxonomy-mapper-v0.2.0/tests/golden.jsonl</li>
+<li>OK  schema.output JSON schema valid</li>
+<li>OK  test.golden JSONL parsed: 3 cases</li>
+</ul>
+</section>
+<section class="band compact tests">
+<h2>Golden Tests</h2>
+<ul class="message-list">
+<li>OK  survey-001: schema_only match passed</li>
+<li>OK  benchmark-001: schema_only match passed</li>
+<li>OK  method-001: schema_only match passed</li>
+<li>SUMMARY 3/3 golden cases passed</li>
+</ul>
+</section>
+</section>
+<section class="band">
+<div class="section-head">
+<h2>Semantic Diff</h2>
+<span class="risk breaking-change">breaking-change</span>
+</div>
+<div class="timeline">
+<article class="diff-item info">
+<span>package</span>
+<p>PACKAGE paper-taxonomy-mapper@0.1.0 -&gt; paper-taxonomy-mapper@0.2.0</p>
+</article>
+<article class="diff-item changed">
+<span>manifest</span>
+<p>MANIFEST changed description: &#x27;Classify AI research paper snippets into a compact taxonomy.&#x27; -&gt; &#x27;Classify AI research paper snippets with taxonomy, domain, evidence, and con...</p>
+</article>
+<article class="diff-item changed">
+<span>manifest</span>
+<p>MANIFEST changed version: &#x27;0.1.0&#x27; -&gt; &#x27;0.2.0&#x27;</p>
+</article>
+<article class="diff-item changed">
+<span>prompt</span>
+<p>PROMPT changed classify: classify.md -&gt; classify.md</p>
+</article>
+<article class="diff-item changed">
+<span>schema</span>
+<p>SCHEMA changed output: output.schema.json -&gt; output.schema.json</p>
+</article>
+<article class="diff-item changed">
+<span>schema</span>
+<p>SCHEMA output allOf branch changed allOf[0]</p>
+</article>
+<article class="diff-item breaking">
+<span>schema</span>
+<p>SCHEMA output oneOf branch removed allOf[0].notes.oneOf[1]</p>
+</article>
+<article class="diff-item breaking">
+<span>schema</span>
+<p>SCHEMA output allOf branch added allOf[1]</p>
+</article>
+<article class="diff-item breaking">
+<span>schema</span>
+<p>SCHEMA output property added confidence (required)</p>
+</article>
+<article class="diff-item breaking">
+<span>schema</span>
+<p>SCHEMA output property added evidence (required)</p>
+</article>
+<article class="diff-item breaking">
+<span>schema</span>
+<p>SCHEMA output property added research_area (required)</p>
+</article>
+<article class="diff-item changed">
+<span>schema</span>
+<p>SCHEMA output $ref target changed paper_type: #/definitions/paper_type -&gt; #/$defs/paper_type</p>
+</article>
+<article class="diff-item changed">
+<span>test</span>
+<p>TEST changed golden: golden.jsonl -&gt; golden.jsonl</p>
+</article>
+<article class="diff-item changed">
+<span>golden</span>
+<p>GOLDEN expected changed benchmark-001</p>
+</article>
+<article class="diff-item changed">
+<span>golden</span>
+<p>GOLDEN expected changed method-001</p>
+</article>
+<article class="diff-item changed">
+<span>golden</span>
+<p>GOLDEN expected changed survey-001</p>
+</article>
+<article class="diff-item breaking">
+<span>risk</span>
+<p>RISK breaking-change</p>
+</article>
+</div>
+</section>
+<section class="band">
+<div class="section-head">
+<h2>Reproduce</h2>
+<span>local commands</span>
+</div>
+<pre><code>
+python3 -m sit.cli validate /mnt/shared-storage-user/xuxinglong-p/SitHub/examples/paper-taxonomy-mapper-v0.2.0
+python3 -m sit.cli test /mnt/shared-storage-user/xuxinglong-p/SitHub/examples/paper-taxonomy-mapper-v0.2.0
+python3 -m sit.cli diff /mnt/shared-storage-user/xuxinglong-p/SitHub/examples/paper-taxonomy-mapper-v0.1.0 /mnt/shared-storage-user/xuxinglong-p/SitHub/examples/paper-taxonomy-mapper-v0.2.0
+</code></pre>
+</section>
+</main>
+</body>
+</html>

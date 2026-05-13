@@ -214,6 +214,48 @@ class CliTest(unittest.TestCase):
             content = output_path.read_text(encoding="utf-8")
             self.assertEqual(content.count("## SitHub CI Summary"), 2)
 
+    def test_ci_summary_supports_refs_package_dir_and_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            package = _write_package(repo / "skills" / "sample", version="0.1.0")
+            _git(repo, "init")
+            _git(repo, "config", "user.email", "sit@example.test")
+            _git(repo, "config", "user.name", "SIT Test")
+            _git(repo, "add", ".")
+            _git(repo, "commit", "-m", "feat: initial skill")
+
+            _upgrade_package_to_v2(package)
+            _git(repo, "add", ".")
+            _git(repo, "commit", "-m", "feat: require confidence")
+
+            code, output = _run_cli_in(
+                repo,
+                [
+                    "ci-summary",
+                    "--package-dir",
+                    "skills/sample",
+                    "--baseline-ref",
+                    "HEAD~1",
+                    "--head-ref",
+                    "HEAD",
+                    "--artifact-dir",
+                    "reports/ci",
+                ],
+            )
+
+            self.assertEqual(code, 0)
+            self.assertIn("Package: `sample-skill@0.2.0`", output)
+            self.assertIn("Diff risk: **breaking-change**", output)
+            artifact_dir = repo / "reports" / "ci"
+            self.assertTrue((artifact_dir / "sit-summary.md").exists())
+            self.assertTrue((artifact_dir / "sit-report.json").exists())
+            self.assertTrue((artifact_dir / "sit-report.md").exists())
+            self.assertTrue((artifact_dir / "sit-report.html").exists())
+            payload = json.loads((artifact_dir / "sit-report.json").read_text(encoding="utf-8"))
+            self.assertEqual(payload["diff"]["risk"], "breaking-change")
+            self.assertEqual(payload["package"]["name"], "sample-skill")
+            self.assertEqual(payload["package"]["version"], "0.2.0")
+
     def test_init_creates_valid_package(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -228,7 +270,11 @@ class CliTest(unittest.TestCase):
             self.assertTrue((package / "skill.yaml").exists())
             self.assertTrue((package / ".github" / "workflows" / "sit-ci.yaml").exists())
             workflow = (package / ".github" / "workflows" / "sit-ci.yaml").read_text(encoding="utf-8")
-            self.assertIn("sit ci-summary --compare origin/main..HEAD", workflow)
+            self.assertIn("python -m pip install git+https://github.com/OpenRaiser/SitHub.git", workflow)
+            self.assertIn("SIT_PACKAGE_DIR", workflow)
+            self.assertIn("--baseline-ref \"$SIT_BASELINE_REF\"", workflow)
+            self.assertIn("--artifact-dir \"$SIT_ARTIFACT_DIR\"", workflow)
+            self.assertIn("actions/upload-artifact@v4", workflow)
             self.assertIn("GITHUB_STEP_SUMMARY", workflow)
             self.assertEqual(validate_code, 0)
             self.assertIn("OK  schema.output JSON schema valid", validate_output)

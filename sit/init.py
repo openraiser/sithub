@@ -101,6 +101,12 @@ def _github_workflow() -> str:
     return """name: Skill CI
 on: [pull_request]
 
+env:
+  SIT_PACKAGE_DIR: "."
+  SIT_BASELINE_REF: "origin/${{ github.base_ref }}"
+  SIT_HEAD_REF: "HEAD"
+  SIT_ARTIFACT_DIR: "reports/ci"
+
 jobs:
   validate-and-test:
     runs-on: ubuntu-latest
@@ -108,12 +114,25 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - run: pip install -e .
-      - run: sit validate
-      - run: sit test
+      - name: Install sit
+        run: python -m pip install git+https://github.com/OpenRaiser/SitHub.git
+      - run: sit validate "$SIT_PACKAGE_DIR"
+      - run: sit test "$SIT_PACKAGE_DIR"
       - name: Write SitHub summary
         if: always()
-        run: sit ci-summary --compare origin/main..HEAD >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          sit ci-summary \
+            --package-dir "$SIT_PACKAGE_DIR" \
+            --baseline-ref "$SIT_BASELINE_REF" \
+            --head-ref "$SIT_HEAD_REF" \
+            --artifact-dir "$SIT_ARTIFACT_DIR" \
+            >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload SitHub artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sithub-report
+          path: ${{ env.SIT_ARTIFACT_DIR }}
 """
 
 

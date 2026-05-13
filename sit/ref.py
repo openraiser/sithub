@@ -58,23 +58,41 @@ def load_compare_package(current_spec: str, compare_spec: str | None) -> Iterato
         yield package, compare
         return
 
-    with _load_git_range(git_range) as (old, new):
+    with _load_git_range(git_range, package_subpath=_package_subpath_for_spec(current_spec)) as (old, new):
         yield new, old
 
 
 @contextmanager
-def _load_git_range(git_range: GitRange) -> Iterator[tuple[SkillPackage, SkillPackage]]:
+def _load_git_range(git_range: GitRange, *, package_subpath: Path | None = None) -> Iterator[tuple[SkillPackage, SkillPackage]]:
     cwd = Path.cwd().resolve()
     repo_root = git_root(cwd)
     if repo_root is None:
         raise SitError(f"Git range requires running inside a Git work tree: {git_range.display}")
 
-    package_subpath = _current_package_subpath(repo_root, cwd)
+    package_subpath = package_subpath or _current_package_subpath(repo_root, cwd)
     with tempfile.TemporaryDirectory(prefix="sit-ref-") as tmp:
         tmp_root = Path(tmp)
         old_root = _archive_ref(repo_root, git_range.old, tmp_root / "old")
         new_root = _archive_ref(repo_root, git_range.new, tmp_root / "new")
         yield load_package(old_root / package_subpath), load_package(new_root / package_subpath)
+
+
+def _package_subpath_for_spec(spec: str) -> Path | None:
+    spec_path = Path(spec).expanduser()
+    if spec_path == Path("."):
+        return None
+
+    cwd = Path.cwd().resolve()
+    repo_root = git_root(cwd)
+    if repo_root is None:
+        return None
+
+    path = spec_path.resolve()
+    if path.is_file() and path.name == "skill.yaml":
+        path = path.parent
+    if not path.exists() or (path != repo_root and repo_root not in path.parents):
+        return None
+    return path.relative_to(repo_root)
 
 
 def _current_package_subpath(repo_root: Path, cwd: Path) -> Path:

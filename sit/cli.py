@@ -16,7 +16,7 @@ from .info import build_info_payload, render_info_text
 from .package import load_package
 from .release import release_package
 from .ref import load_compare_package, load_package_pair, parse_git_range
-from .report import build_report, build_report_payload, render_report_html
+from .report import build_report, build_report_payload, render_report_html, render_report_markdown
 from .summary import build_pr_summary, build_pr_summary_payload, build_pr_summary_text
 from .validate import build_test_payload, run_golden_schema_tests, validate_package
 
@@ -142,13 +142,19 @@ def cmd_report(args: argparse.Namespace) -> int:
 
 
 def cmd_ci_summary(args: argparse.Namespace) -> int:
-    compare_range = parse_git_range(args.compare)
-    with load_compare_package(args.package, args.compare) as (package, compare):
-        package_spec = "." if compare_range else None
+    package_spec_arg = args.package_dir or args.package
+    compare_spec = _ci_compare_spec(args)
+    compare_range = parse_git_range(compare_spec)
+    with load_compare_package(package_spec_arg, compare_spec) as (package, compare):
+        package_spec = package_spec_arg if args.package_dir else ("." if compare_range else None)
         diff_command = f"python3 -m sit.cli diff {args.compare}" if compare_range else None
-        content = render_ci_summary(
-            build_report_payload(package, compare=compare, package_spec=package_spec, diff_command=diff_command)
-        )
+        if compare_range:
+            diff_command = f"python3 -m sit.cli report {package_spec_arg} --compare {compare_spec}"
+        payload = build_report_payload(package, compare=compare, package_spec=package_spec, diff_command=diff_command)
+        content = render_ci_summary(payload)
+
+    if args.artifact_dir:
+        _write_ci_artifacts(Path(args.artifact_dir).expanduser().resolve(), payload, content)
 
     if args.output:
         output = Path(args.output).expanduser().resolve()
@@ -277,6 +283,10 @@ def _build_parser() -> argparse.ArgumentParser:
     ci_summary = subparsers.add_parser("ci-summary", help="Generate a Markdown summary for GitHub Actions")
     ci_summary.add_argument("package", nargs="?", default=".", help="Skill Package directory or skill.yaml")
     ci_summary.add_argument("--compare", help="Optional baseline Skill Package or Git range such as origin/main..HEAD")
+    ci_summary.add_argument("--baseline-ref", help="Baseline Git ref used to build a compare range")
+    ci_summary.add_argument("--head-ref", help="Head Git ref used to build a compare range")
+    ci_summary.add_argument("--package-dir", help="Skill Package subdirectory when running from a repository root")
+    ci_summary.add_argument("--artifact-dir", help="Write sit-report.json, sit-report.md, sit-report.html, and sit-summary.md")
     ci_summary.add_argument("-o", "--output", help="Write Markdown summary to this path instead of stdout")
     ci_summary.add_argument("--append", action="store_true", help="Append to --output instead of replacing it")
     ci_summary.set_defaults(func=cmd_ci_summary)
@@ -320,6 +330,24 @@ def _print_path_group(title: str, paths: dict[str, Path]) -> None:
     for name, path in paths.items():
         marker = "exists" if path.exists() else "missing"
         print(f"  {name}: {marker} {path}")
+
+
+def _ci_compare_spec(args: argparse.Namespace) -> str | None:
+    if args.compare and (args.baseline_ref or args.head_ref):
+        raise SitError("Use either --compare or --baseline-ref/--head-ref, not both")
+    if args.compare:
+        return args.compare
+    if args.baseline_ref or args.head_ref:
+        return f"{args.baseline_ref or 'origin/main'}..{args.head_ref or 'HEAD'}"
+    return None
+
+
+def _write_ci_artifacts(directory: Path, payload: dict, summary: str) -> None:
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "sit-summary.md").write_text(summary, encoding="utf-8")
+    (directory / "sit-report.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    (directory / "sit-report.md").write_text(render_report_markdown(payload), encoding="utf-8")
+    (directory / "sit-report.html").write_text(render_report_html(payload), encoding="utf-8")
 
 
 def _render_diff(result, old, new, output_format: str, *, old_source: str | None = None, new_source: str | None = None) -> str:
