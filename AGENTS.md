@@ -23,6 +23,7 @@ The completed local loop now includes:
 
 - `sit init`
 - `sit info`
+- `sit doctor`
 - Git thin wrappers: `sit add`, `sit commit`, `sit push`, `sit pull`, `sit branch`, `sit checkout`, `sit log`
 - `sit pr-summary`
 - `sit release`
@@ -40,7 +41,7 @@ The completed local loop now includes:
 
 The next CLI milestone should focus on:
 
-- broader schema coverage: `anyOf`, cross-file `$ref`, and remote `$ref`
+- onboarding automation for existing `SKILL.md` projects
 - release artifact enhancements: stable release bundles and reproducibility archives
 
 The first validation packages are local generic examples:

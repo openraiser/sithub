@@ -7,6 +7,7 @@ from pathlib import Path
 
 from . import __version__
 from .ci import render_ci_summary
+from .doctor import build_doctor_payload, render_doctor_text
 from .diff import diff_packages
 from .errors import SitError
 from .gate import check_version_gate_against_head, format_gate_failure
@@ -66,6 +67,15 @@ def cmd_info(args: argparse.Namespace) -> int:
     else:
         print(render_info_text(payload), end="")
     return 0
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    payload = build_doctor_payload(args.package)
+    if args.format == "json":
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        print(render_doctor_text(payload), end="")
+    return 0 if payload["ok"] else 1
 
 
 def cmd_validate(args: argparse.Namespace) -> int:
@@ -257,6 +267,11 @@ def _build_parser() -> argparse.ArgumentParser:
     info.add_argument("package", nargs="?", default=".", help="Skill Package directory or skill.yaml")
     info.add_argument("--format", choices=["text", "json"], default="text", help="Output format")
     info.set_defaults(func=cmd_info)
+
+    doctor = subparsers.add_parser("doctor", help="Check SitHub onboarding readiness for an existing Skill Package")
+    doctor.add_argument("package", nargs="?", default=".", help="Skill Package directory or skill.yaml")
+    doctor.add_argument("--format", choices=["text", "json"], default="text", help="Output format")
+    doctor.set_defaults(func=cmd_doctor)
 
     validate = subparsers.add_parser("validate", help="Validate manifest paths, schemas, and golden JSONL")
     validate.add_argument("package", nargs="?", default=".", help="Skill Package directory or skill.yaml")

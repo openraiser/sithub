@@ -364,6 +364,46 @@ class CliTest(unittest.TestCase):
             self.assertIn("Validation: pass", output)
             self.assertIn("Golden summary: SUMMARY 1/1 golden cases passed", output)
 
+    def test_doctor_reports_onboarding_readiness(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            package = _write_package(Path(tmp) / "doctor-skill", version="0.1.0")
+            (package / ".github" / "workflows").mkdir(parents=True)
+            (package / ".github" / "workflows" / "sit-ci.yaml").write_text(
+                "name: Skill CI\nsteps:\n  - run: sit validate\n  - run: sit test\n  - run: sit ci-summary\n",
+                encoding="utf-8",
+            )
+            (package / "reports" / "onboarding.md").write_text("# report\n", encoding="utf-8")
+            _git(package, "init")
+            _git(package, "config", "user.email", "sit@example.test")
+            _git(package, "config", "user.name", "SIT Test")
+            _git(package, "remote", "add", "origin", "https://github.com/example/doctor-skill.git")
+            _git(package, "add", ".")
+            _git(package, "commit", "-m", "feat: initial skill")
+
+            text_code, text_output = _run_cli_in(package, ["doctor"])
+            json_code, json_output = _run_cli_in(package, ["doctor", "--format", "json"])
+
+            self.assertEqual(text_code, 0)
+            self.assertIn("SitHub Doctor", text_output)
+            self.assertIn("OK git: Git repository detected", text_output)
+            self.assertIn("OK github_remote: GitHub remote found", text_output)
+            self.assertIn("OK github_actions: SitHub GitHub Actions workflow found", text_output)
+            self.assertEqual(json_code, 0)
+            payload = json.loads(json_output)
+            self.assertEqual(payload["schema_version"], "sit.doctor.v1")
+            self.assertEqual(payload["status"], "pass")
+            self.assertEqual(payload["package"]["name"], "sample-skill")
+
+    def test_doctor_fails_without_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            code, output = _run_cli(["doctor", str(root)])
+
+            self.assertEqual(code, 1)
+            self.assertIn("ERR manifest:", output)
+            self.assertIn("Missing skill.yaml", output)
+
     def test_golden_match_modes_pass_and_fail(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             package = _write_package(Path(tmp) / "pkg", version="0.1.0")
