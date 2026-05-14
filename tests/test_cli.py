@@ -4,6 +4,7 @@ import contextlib
 import io
 import json
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -520,6 +521,81 @@ class CliTest(unittest.TestCase):
             self.assertIn("contains-fail: contains mismatch at answer", output)
             self.assertIn("SUMMARY 4/5 golden cases passed", output)
 
+    def test_test_run_uses_manifest_runner_to_generate_actual(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            package = _write_package(Path(tmp) / "runner-skill", version="0.1.0")
+            _write_runner_script(package, answer_expr="payload.get('text', '')")
+            _append_runner_command(package)
+            record = {
+                "case_id": "runner-exact",
+                "input": {"text": "hello"},
+                "expected": {"answer": "hello"},
+                "match_mode": "exact",
+            }
+            (package / "tests" / "golden.jsonl").write_text(json.dumps(record) + "\n", encoding="utf-8")
+
+            code, output = _run_cli(["test", str(package), "--run"])
+            json_code, json_output = _run_cli(["test", str(package), "--run", "--format", "json"])
+
+            self.assertEqual(code, 0)
+            self.assertIn("runner-exact: runner produced actual", output)
+            self.assertIn("runner-exact: exact match passed", output)
+            self.assertIn("SUMMARY 1/1 golden cases passed", output)
+            self.assertEqual(json_code, 0)
+            payload = json.loads(json_output)
+            self.assertEqual(payload["execution"]["mode"], "runner")
+            self.assertIn("scripts/run_case.py", payload["execution"]["runner"])
+            self.assertEqual(payload["golden_tests"]["passed"], 1)
+
+    def test_test_run_can_use_cli_runner_override(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            package = _write_package(Path(tmp) / "runner-override-skill", version="0.1.0")
+            _write_runner_script(package, answer_expr="'override'")
+            record = {
+                "case_id": "runner-override",
+                "input": {"text": "hello"},
+                "expected": {"answer": "override"},
+                "match_mode": "partial",
+            }
+            (package / "tests" / "golden.jsonl").write_text(json.dumps(record) + "\n", encoding="utf-8")
+            command = f"{sys.executable} scripts/run_case.py --input {{input}} --output {{output}}"
+
+            code, output = _run_cli(["test", str(package), "--run", "--runner", command])
+
+            self.assertEqual(code, 0)
+            self.assertIn("runner-override: runner produced actual", output)
+            self.assertIn("runner-override: partial match passed", output)
+
+    def test_test_run_reports_runner_regression(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            package = _write_package(Path(tmp) / "runner-regression-skill", version="0.1.0")
+            _write_runner_script(package, answer_expr="'wrong'")
+            _append_runner_command(package)
+            record = {
+                "case_id": "runner-fail",
+                "input": {"text": "hello"},
+                "expected": {"answer": "hello"},
+                "match_mode": "exact",
+            }
+            (package / "tests" / "golden.jsonl").write_text(json.dumps(record) + "\n", encoding="utf-8")
+
+            code, output = _run_cli(["test", str(package), "--run"])
+
+            self.assertEqual(code, 1)
+            self.assertIn("runner-fail: runner produced actual", output)
+            self.assertIn("runner-fail: exact mismatch", output)
+            self.assertIn("SUMMARY 0/1 golden cases passed", output)
+
+    def test_test_run_requires_runner_configuration(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            package = _write_package(Path(tmp) / "missing-runner-skill", version="0.1.0")
+
+            code, stdout, stderr = _run_cli_capture(["test", str(package), "--run"])
+
+            self.assertEqual(code, 2)
+            self.assertEqual(stdout, "")
+            self.assertIn("No test runner configured", stderr)
+
     def test_git_range_diff_and_pr_summary_use_committed_snapshots(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             package = _write_package(Path(tmp) / "git-range-skill", version="0.1.0")
@@ -900,6 +976,35 @@ def _upgrade_package_to_v2(root: Path) -> None:
 
     record = {"case_id": "case-1", "input": {"text": "hello"}, "expected": {"answer": "ok", "confidence": "high"}}
     (root / "tests" / "golden.jsonl").write_text(json.dumps(record) + "\n", encoding="utf-8")
+
+
+def _write_runner_script(root: Path, *, answer_expr: str) -> None:
+    scripts = root / "scripts"
+    scripts.mkdir(exist_ok=True)
+    (scripts / "run_case.py").write_text(
+        "\n".join(
+            [
+                "import argparse",
+                "import json",
+                "",
+                "parser = argparse.ArgumentParser()",
+                "parser.add_argument('--input', required=True)",
+                "parser.add_argument('--output', required=True)",
+                "args = parser.parse_args()",
+                "payload = json.loads(open(args.input, encoding='utf-8').read())",
+                f"actual = {{'answer': {answer_expr}}}",
+                "open(args.output, 'w', encoding='utf-8').write(json.dumps(actual))",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
+def _append_runner_command(root: Path) -> None:
+    manifest = (root / "skill.yaml").read_text(encoding="utf-8")
+    command = f"{sys.executable} scripts/run_case.py --input {{input}} --output {{output}}"
+    (root / "skill.yaml").write_text(manifest + f"commands:\n  run_case: \"{command}\"\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

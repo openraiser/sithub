@@ -106,7 +106,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
 def cmd_test(args: argparse.Namespace) -> int:
     package = load_package(args.package)
     if args.format == "json":
-        payload = build_test_payload(package)
+        payload = build_test_payload(package, run_actual=args.run, runner=args.runner, timeout=args.timeout)
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0 if payload["validation"]["ok"] and payload["golden_tests"]["ok"] else 1
 
@@ -116,7 +116,7 @@ def cmd_test(args: argparse.Namespace) -> int:
             print(message)
         return 1
 
-    result = run_golden_schema_tests(package)
+    result = run_golden_schema_tests(package, run_actual=args.run, runner=args.runner, timeout=args.timeout)
     for message in result.messages:
         print(message)
     return 0 if result.ok else 1
@@ -307,6 +307,9 @@ def _build_parser() -> argparse.ArgumentParser:
     test = subparsers.add_parser("test", help="Run deterministic golden expected-vs-schema tests")
     test.add_argument("package", nargs="?", default=".", help="Skill Package directory or skill.yaml")
     test.add_argument("--format", choices=["text", "json"], default="text", help="Output format")
+    test.add_argument("--run", action="store_true", help="Run each golden case through a Skill runner to generate actual output")
+    test.add_argument("--runner", help="Runner command template; overrides skill.yaml commands.run_case")
+    test.add_argument("--timeout", type=int, default=30, help="Runner timeout per golden case in seconds")
     test.set_defaults(func=cmd_test)
 
     diff = subparsers.add_parser("diff", help="Compare two Skill Package directories or a Git range")

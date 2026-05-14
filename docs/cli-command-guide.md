@@ -34,6 +34,7 @@ sit info
 |---|---|---|
 | `sit validate` | 检查 Skill Package 结构是否完整 | `sit validate` |
 | `sit test` | 跑 golden case，验证 expected/actual 是否符合 schema 和 match mode | `sit test` |
+| `sit test --run` | 调用 Skill runner 生成 actual，再和 expected 做行为回归比较 | `sit test --run` |
 | `sit test --format json` | 输出机器可读测试结果 | `sit test --format json` |
 
 示例：
@@ -46,6 +47,34 @@ sit test
 如果 `schemas/output.schema.json` 缺失，`validate` 会失败。如果 `tests/golden.jsonl` 里的 expected 不符合 output schema，`test` 会失败。
 
 当前 `sit test` 还不是完整运行 Skill 的执行器，而是先做结构化 golden 回归检查。它的价值是让 Skill 的输出契约可验证。
+
+如果项目提供 runner，可以让 `sit test` 真正执行 Skill。配置方式：
+
+```yaml
+commands:
+  run_case: python scripts/run_skill_case.py --input {input} --output {output}
+```
+
+然后运行：
+
+```bash
+sit test --run
+```
+
+runner 会收到一个 JSON input 文件，并把 actual JSON 写到 `{output}`。`sit` 会读取 actual，先用 output schema 校验，再按 `match_mode` 比较 expected 和 actual。
+
+也可以不用写入 `skill.yaml`，临时指定 runner：
+
+```bash
+sit test --run --runner "python scripts/run_skill_case.py --input {input} --output {output}"
+```
+
+runner 命令支持这些占位符：
+
+- `{input}`：当前 golden case 的 input JSON 文件路径
+- `{output}`：runner 应写入 actual JSON 的文件路径
+- `{case_id}`：当前 case id
+- `{root}`：Skill Package 根目录
 
 ## 3. 语义 Diff 和报告
 

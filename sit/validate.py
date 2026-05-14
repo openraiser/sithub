@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import json
 from pathlib import Path
+import subprocess
+import tempfile
 from typing import Any
 
 from jsonschema import Draft202012Validator, SchemaError, ValidationError
@@ -77,6 +80,7 @@ def validate_package(package: SkillPackage) -> CheckResult:
                 _check_match_modes(result, records, name)
                 result.add_ok(f"test.{name} JSONL parsed: {len(records)} cases")
 
+    _check_commands(result, package)
     return result
 
 
@@ -87,10 +91,31 @@ def _check_match_modes(result: CheckResult, records: list[dict[str, Any]], test_
             result.add_fail(f"test.{test_name} line {index} unsupported match_mode: {match_mode!r}")
 
 
-def run_golden_schema_tests(package: SkillPackage) -> CheckResult:
+def _check_commands(result: CheckResult, package: SkillPackage) -> None:
+    commands = package.manifest.get("commands")
+    if commands is None:
+        return
+    if not isinstance(commands, dict):
+        result.add_fail("skill.yaml field 'commands' must be a mapping")
+        return
+    for name, command in commands.items():
+        if isinstance(command, str) and command.strip():
+            result.add_ok(f"command.{name}: configured")
+        else:
+            result.add_fail(f"skill.yaml field 'commands.{name}' must be a non-empty string")
+
+
+def run_golden_schema_tests(
+    package: SkillPackage,
+    *,
+    run_actual: bool = False,
+    runner: str | None = None,
+    timeout: int = 30,
+) -> CheckResult:
     result = CheckResult()
     schema_path = _select_output_schema(package)
     golden_path = _select_golden_file(package)
+    runner_command = _resolve_runner(package, runner) if run_actual else None
 
     schema = load_json(schema_path)
     validator = Draft202012Validator(schema)
@@ -106,16 +131,24 @@ def run_golden_schema_tests(package: SkillPackage) -> CheckResult:
         if "expected" not in record:
             result.add_fail(f"{case_id}: missing expected object")
             continue
-        if match_mode != "schema_only" and "actual" not in record:
+        actual = record.get("actual")
+        if runner_command is not None:
+            actual, error = _run_case(package, runner_command, record, case_id, timeout)
+            if error is not None:
+                result.add_fail(f"{case_id}: {error}")
+                continue
+            result.add_ok(f"{case_id}: runner produced actual")
+
+        if match_mode != "schema_only" and actual is None:
             result.add_fail(f"{case_id}: match_mode {match_mode} requires actual")
             continue
 
-        candidate = record.get("actual", record["expected"])
-        schema_ok = _validate_candidate(result, validator, case_id, candidate, "actual" if "actual" in record else "expected")
+        candidate = actual if actual is not None else record["expected"]
+        schema_ok = _validate_candidate(result, validator, case_id, candidate, "actual" if actual is not None else "expected")
         if not schema_ok:
             continue
 
-        match_error = _match_record(record["expected"], record.get("actual"), match_mode)
+        match_error = _match_record(record["expected"], actual, match_mode)
         if match_error:
             result.add_fail(f"{case_id}: {match_error}")
         else:
@@ -126,12 +159,26 @@ def run_golden_schema_tests(package: SkillPackage) -> CheckResult:
     return result
 
 
-def build_test_payload(package: SkillPackage) -> dict[str, Any]:
+def build_test_payload(
+    package: SkillPackage,
+    *,
+    run_actual: bool = False,
+    runner: str | None = None,
+    timeout: int = 30,
+) -> dict[str, Any]:
     validation = validate_package(package)
-    tests = run_golden_schema_tests(package) if validation.ok else None
+    tests = run_golden_schema_tests(package, run_actual=run_actual, runner=runner, timeout=timeout) if validation.ok else None
+    runner_command = None
+    if run_actual:
+        runner_command = runner or _manifest_runner(package)
     return {
         "schema_version": "sit.test.v1",
         "package": _package_ref(package),
+        "execution": {
+            "mode": "runner" if run_actual else "static",
+            "runner": runner_command,
+            "timeout_seconds": timeout if run_actual else None,
+        },
         "validation": validation.to_dict(),
         "golden_tests": _test_result_dict(tests),
     }
@@ -182,6 +229,84 @@ def _package_ref(package: SkillPackage) -> dict[str, str]:
         "root": str(package.root),
         "manifest": str(package.manifest_path),
     }
+
+
+def _resolve_runner(package: SkillPackage, runner: str | None) -> str:
+    command = runner or _manifest_runner(package)
+    if not command:
+        raise SitError("No test runner configured; define commands.run_case in skill.yaml or pass --runner")
+    return command
+
+
+def _manifest_runner(package: SkillPackage) -> str | None:
+    commands = package.manifest.get("commands", {})
+    if not isinstance(commands, dict):
+        return None
+    command = commands.get("run_case")
+    return command if isinstance(command, str) and command.strip() else None
+
+
+def _run_case(
+    package: SkillPackage,
+    runner_command: str,
+    record: dict[str, Any],
+    case_id: Any,
+    timeout: int,
+) -> tuple[Any | None, str | None]:
+    with tempfile.TemporaryDirectory(prefix="sit-case-") as tmp:
+        tmp_path = Path(tmp)
+        input_path = tmp_path / "input.json"
+        output_path = tmp_path / "output.json"
+        input_path.write_text(json.dumps(record.get("input", {}), ensure_ascii=False), encoding="utf-8")
+
+        try:
+            command = runner_command.format(
+                input=str(input_path),
+                output=str(output_path),
+                case_id=str(case_id),
+                root=str(package.root),
+            )
+        except KeyError as exc:
+            return None, f"runner command has unsupported placeholder: {exc}"
+
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=package.root,
+                shell=True,
+                check=False,
+                text=True,
+                capture_output=True,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired:
+            return None, f"runner timed out after {timeout}s"
+
+        if completed.returncode != 0:
+            detail = completed.stderr.strip() or completed.stdout.strip()
+            return None, "runner failed" + (f": {_clip(detail)}" if detail else "")
+
+        if output_path.exists() and output_path.read_text(encoding="utf-8").strip():
+            text = output_path.read_text(encoding="utf-8")
+            source = str(output_path)
+        else:
+            text = completed.stdout
+            source = "stdout"
+
+        if not text.strip():
+            return None, "runner produced no JSON output"
+
+        try:
+            return json.loads(text), None
+        except json.JSONDecodeError as exc:
+            return None, f"runner produced invalid JSON from {source}: line {exc.lineno}, column {exc.colno}: {exc.msg}"
+
+
+def _clip(text: str, limit: int = 300) -> str:
+    clean = " ".join(text.split())
+    if len(clean) <= limit:
+        return clean
+    return clean[: limit - 3] + "..."
 
 
 def _validate_candidate(

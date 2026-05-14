@@ -150,7 +150,7 @@ python3 -m sit.cli --version
 - `sit doctor --format text/json` 能检查 Git、GitHub remote、manifest、validate/test、workflow 和 reports，并在工作区 dirty 时给出 warning。
 - `sit diff` 能递归识别 nested object、enum、array items、additionalProperties 和边界约束变化。
 - `sit diff` 能识别 `oneOf` / `allOf` 分支新增、删除、重排/内容变化，并能解析本地 `#/definitions/...` 与 `#/$defs/...` 引用后比较目标 schema。
-- `sit test` 支持 `schema_only`、`exact`、`partial`、`contains` match mode，旧 golden 默认兼容为 `schema_only`。
+- `sit test` 支持 `schema_only`、`exact`、`partial`、`contains` match mode，旧 golden 默认兼容为 `schema_only`；`sit test --run` 可通过 `commands.run_case` 或 `--runner` 运行 Skill 生成 actual 后再做行为回归比较。
 - `sit commit` / `sit release` 能在有 Git HEAD 基线时阻断低于语义 diff 要求的 version bump，并支持 `--no-version-gate` 显式绕过。
 - `sit test --format json` 输出 `sit.test.v1`；`sit report --format json` 输出 `sit.report.v1`；`sit info --format json` 输出 `sit.info.v1`。
 - `sit report --format html` 能生成可视化静态 dashboard，支持风险筛选、长 diff 折叠/展开和复杂 schema path 展示；example 报告位于 `examples/paper-taxonomy-mapper-v0.2.0/reports/visual-v0.1.0-to-v0.2.0.html`。
@@ -158,17 +158,17 @@ python3 -m sit.cli --version
 - `sit init` 的 workflow 已自动写入 `$GITHUB_STEP_SUMMARY`，并在 `always()` 下上传 JSON/Markdown/HTML report artifact。
 - version gate 阻断信息包含原因、修复建议和关键语义变更；release CHANGELOG/report 包含风险、gate、验证/测试和语义变更摘要。
 - 临时 Git repo 中的 `HEAD~1..HEAD` 测试覆盖了 `diff`、`pr-summary`、`report --compare`，并覆盖了仓库子目录中的 Skill Package。
-- 单元测试 32 项通过。
+- 单元测试 36 项通过。
 - compileall 通过。
-- CLI 版本为 `0.16.0`。
+- CLI 版本为 `0.17.0`。
 
 ## 6. 下一轮实现计划
 
-### Step 1: onboarding 质量增强
+### Step 1: runner 接入真实试点
 
-- schema 精炼引导
-- report artifact 入库/CI artifact 策略
-- GitHub Actions 稳定安装路径
+- 为 `paper-webpage-builder` 增加 `commands.run_case`
+- 构造能真实执行的 golden case
+- 将 `sit test --run` 接入 GitHub Actions summary/report
 
 ### Step 2: release artifact 增强
 

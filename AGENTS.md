@@ -36,13 +36,14 @@ The completed local loop now includes:
 - GitHub Actions summary: `sit ci-summary --compare origin/main..HEAD`
 - CI configuration for custom baseline refs, package subdirectories, and failure artifacts
 - recursive schema diff and golden test match modes
+- runner-backed `sit test --run` behavior regression
 - complex schema diff for `oneOf`, `allOf`, and local `$ref`
 - commit/release version gate for breaking-change and version bump consistency
 - friendlier version-gate errors and richer release notes
 
 The next CLI milestone should focus on:
 
-- onboarding quality for existing `SKILL.md` projects: schema refinement guidance, report artifact policy, and stable CI install path
+- runner-backed behavior regression in the real `paper-webpage-builder` pilot
 - release artifact enhancements: stable release bundles and reproducibility archives
 
 The first validation packages are local generic examples:

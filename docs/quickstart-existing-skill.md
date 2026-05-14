@@ -217,6 +217,7 @@ Open a GitHub PR and confirm:
 
 ## Current Limits
 
-- SitHub does not run the Skill itself yet; golden cases validate expected/actual records against schema and match mode.
+- By default, `sit test` validates golden expected/actual records against schema and match mode. To run the Skill itself, add a project runner and use `sit test --run`.
 - Installing from GitHub source requires `OpenRaiser/SitHub` to be reachable from CI.
 - `sit onboard` does not infer a domain-perfect schema yet. Treat the generated schemas and golden case as a safe starting point, then refine them for the Skill's real contract.
+- Behavior regression requires a project runner. Add `commands.run_case` to `skill.yaml`, then use `sit test --run`.
