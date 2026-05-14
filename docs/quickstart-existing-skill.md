@@ -25,9 +25,44 @@ git remote add origin https://github.com/OWNER/REPO.git
 git push -u origin main
 ```
 
-## 2. Add SitHub Package Metadata
+## 2. Run SitHub Onboarding
 
-Create `skill.yaml`:
+From the existing Skill directory:
+
+```bash
+cd /path/to/existing-skill
+sit onboard
+```
+
+For a GitHub-backed project, pass the remote when the repository does not already have `origin`:
+
+```bash
+sit onboard --remote https://github.com/OWNER/REPO.git
+```
+
+`sit onboard` is conservative by default:
+
+- it requires `SKILL.md`
+- it creates missing SitHub directories and files
+- it augments an existing `skill.yaml` without replacing existing name/version/description values
+- it does not overwrite generated files unless `--force` is used
+- it initializes Git when the directory is not already a Git repository, unless `--no-git` is used
+- it generates `reports/sithub-onboarding.md` and `reports/sithub-onboarding.html`
+- it finishes by running the same checks as `sit doctor`
+
+Then run:
+
+```bash
+sit doctor
+sit validate
+sit test
+sit info
+```
+
+## 3. Manual Metadata Fallback
+
+If you need to do the same process by hand, create `skill.yaml`:
+
 
 ```yaml
 name: paper-webpage-builder
@@ -50,7 +85,7 @@ tags:
 
 The important part is that `prompts`, `schemas`, and `tests` point to files that exist.
 
-## 3. Add Schemas
+## 4. Add Schemas
 
 Create:
 
@@ -67,7 +102,7 @@ The output schema should describe the result contract of the Skill. For example,
 - `validation` status
 - remaining `risks`
 
-## 4. Add Golden Cases
+## 5. Add Golden Cases
 
 Create `tests/golden.jsonl`.
 
@@ -79,7 +114,7 @@ Each line is one deterministic case:
 
 Use `schema_only` first. It lets SitHub check that expected outputs conform to the output schema before you have a full execution harness.
 
-## 5. Check Readiness
+## 6. Check Readiness
 
 Run:
 
@@ -97,7 +132,7 @@ Expected result:
 - `sit test` passes
 - `sit info` shows Git state and reports
 
-## 6. Generate an Onboarding Report
+## 7. Generate an Onboarding Report
 
 ```bash
 mkdir -p reports
@@ -108,7 +143,7 @@ sit ci-summary --artifact-dir reports/ci-onboarding
 
 These reports prove the Skill can be observed and tested by SitHub.
 
-## 7. Add GitHub Actions
+## 8. Add GitHub Actions
 
 Create `.github/workflows/sit-ci.yaml`:
 
@@ -152,7 +187,7 @@ jobs:
 
 This requires `OpenRaiser/SitHub` to be publicly installable, or a private install token to be configured.
 
-## 8. Run a PR Loop
+## 9. Run a PR Loop
 
 Create a branch:
 
@@ -184,4 +219,4 @@ Open a GitHub PR and confirm:
 
 - SitHub does not run the Skill itself yet; golden cases validate expected/actual records against schema and match mode.
 - Installing from GitHub source requires `OpenRaiser/SitHub` to be reachable from CI.
-- Existing `SKILL.md` conversion is still manual. A future `sit onboard` command should automate the repetitive parts.
+- `sit onboard` does not infer a domain-perfect schema yet. Treat the generated schemas and golden case as a safe starting point, then refine them for the Skill's real contract.

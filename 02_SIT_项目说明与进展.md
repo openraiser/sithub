@@ -1,6 +1,6 @@
 # SitHub 项目说明与进展
 
-日期：2026-05-13
+日期：2026-05-14
 
 ## 1. 当前项目定义
 
@@ -39,6 +39,7 @@ sit/
   cli.py
   package.py
   init.py
+  onboard.py
   info.py
   doctor.py
   gate.py
@@ -61,6 +62,7 @@ examples/
 已有命令：
 
 - `sit init`
+- `sit onboard`
 - `sit info`
 - `sit doctor`
 - `sit status`
@@ -102,7 +104,8 @@ sit pr-summary main..HEAD --format json
 
 | 目标 | 当前状态 | 下一步 |
 |---|---|---|
-| `sit init` | 已实现 | 增加已有 `SKILL.md` 项目的自动接入能力 |
+| `sit init` | 已实现 | 增加模板类型 |
+| `sit onboard` | 已实现已有 `SKILL.md` 项目的自动接入第一版 | 后续补 schema 精炼引导和 report artifact 策略 |
 | `sit info` | 已实现 `text/json` 全景状态 | 后续接入更多风险信号 |
 | `sit doctor` | 已实现 `text/json` 接入检查 | 后续与 `sit onboard` 串联 |
 | Git 风格入口 | 已实现基础透传和 Git ref 感知 | 增加更友好的错误 |
@@ -143,6 +146,7 @@ python3 -m sit.cli --version
 - `pr-summary` 能生成 PR Markdown，包含风险和建议 bump。
 - `diff --format json/markdown` 和 `pr-summary --format json` 能输出结构化风险、建议 bump、validation/test/diff 信号。
 - `sit info --format text/json` 能输出 package、Git、文件清单、validate/test 摘要和最近 report 状态。
+- `sit onboard` 能从已有 `SKILL.md` 项目补齐 `skill.yaml`、schemas、golden case、GitHub Actions、PR 模板和 onboarding reports，默认不覆盖已有文件，并以 `sit doctor` 状态收尾。
 - `sit doctor --format text/json` 能检查 Git、GitHub remote、manifest、validate/test、workflow 和 reports，并在工作区 dirty 时给出 warning。
 - `sit diff` 能递归识别 nested object、enum、array items、additionalProperties 和边界约束变化。
 - `sit diff` 能识别 `oneOf` / `allOf` 分支新增、删除、重排/内容变化，并能解析本地 `#/definitions/...` 与 `#/$defs/...` 引用后比较目标 schema。
@@ -154,17 +158,17 @@ python3 -m sit.cli --version
 - `sit init` 的 workflow 已自动写入 `$GITHUB_STEP_SUMMARY`，并在 `always()` 下上传 JSON/Markdown/HTML report artifact。
 - version gate 阻断信息包含原因、修复建议和关键语义变更；release CHANGELOG/report 包含风险、gate、验证/测试和语义变更摘要。
 - 临时 Git repo 中的 `HEAD~1..HEAD` 测试覆盖了 `diff`、`pr-summary`、`report --compare`，并覆盖了仓库子目录中的 Skill Package。
-- 单元测试 29 项通过。
+- 单元测试 32 项通过。
 - compileall 通过。
-- CLI 版本为 `0.15.0`。
+- CLI 版本为 `0.16.0`。
 
 ## 6. 下一轮实现计划
 
-### Step 1: onboarding 自动化
+### Step 1: onboarding 质量增强
 
-- `sit onboard`
-- `sit init --from-skill-md`
-- 从 `SKILL.md` 推导 `skill.yaml` 初稿、schemas、golden case 模板和 workflow
+- schema 精炼引导
+- report artifact 入库/CI artifact 策略
+- GitHub Actions 稳定安装路径
 
 ### Step 2: release artifact 增强
 
@@ -203,4 +207,4 @@ sit pr-summary main..HEAD
 sit release minor
 ```
 
-下一步进入 onboarding 自动化：把 `paper-webpage-builder` 试点中的人工接入步骤沉淀为 `sit onboard` 或 `sit init --from-skill-md`，让已有 Skill 项目可以低摩擦进入 SitHub 控制回路。
+下一步进入 onboarding 质量增强：让 `sit onboard` 生成的 schema、golden case 和 report artifact 策略更贴近真实 Skill 项目的长期维护需求。

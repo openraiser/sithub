@@ -133,9 +133,9 @@ Near-term:
 
 - `docs/quickstart-existing-skill.md`
 - `sit doctor`
+- `sit onboard`
 
 Later:
 
-- `sit onboard` or `sit init --from-skill-md`
 - clearer report artifact policy
 - stable install/distribution path, ideally package release instead of installing from GitHub source

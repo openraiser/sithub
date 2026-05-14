@@ -404,6 +404,85 @@ class CliTest(unittest.TestCase):
             self.assertIn("ERR manifest:", output)
             self.assertIn("Missing skill.yaml", output)
 
+    def test_onboard_existing_skill_project(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "paper-webpage-builder"
+            (root / "references").mkdir(parents=True)
+            (root / "SKILL.md").write_text("# Paper Webpage Builder\n\nBuild a polished paper webpage.\n", encoding="utf-8")
+            (root / "references" / "design_principles.md").write_text("Design guidance.\n", encoding="utf-8")
+
+            code, output = _run_cli(
+                [
+                    "onboard",
+                    str(root),
+                    "--remote",
+                    "https://github.com/example/paper-webpage-builder.git",
+                ]
+            )
+            validate_code, validate_output = _run_cli(["validate", str(root)])
+            test_code, test_output = _run_cli(["test", str(root)])
+            doctor_code, doctor_output = _run_cli(["doctor", str(root)])
+
+            self.assertEqual(code, 0)
+            self.assertIn("SitHub Onboard", output)
+            self.assertIn("Doctor status: warn", output)
+            self.assertTrue((root / "skill.yaml").exists())
+            self.assertTrue((root / "schemas" / "input.schema.json").exists())
+            self.assertTrue((root / "schemas" / "output.schema.json").exists())
+            self.assertTrue((root / "tests" / "golden.jsonl").exists())
+            self.assertTrue((root / ".github" / "workflows" / "sit-ci.yaml").exists())
+            self.assertTrue((root / "reports" / "sithub-onboarding.md").exists())
+            self.assertTrue((root / "reports" / "sithub-onboarding.html").exists())
+            manifest = (root / "skill.yaml").read_text(encoding="utf-8")
+            self.assertIn("name: paper-webpage-builder", manifest)
+            self.assertIn("skill: SKILL.md", manifest)
+            self.assertIn("design_principles: references/design_principles.md", manifest)
+            self.assertEqual(validate_code, 0)
+            self.assertIn("OK  schema.output JSON schema valid", validate_output)
+            self.assertEqual(test_code, 0)
+            self.assertIn("SUMMARY 1/1 golden cases passed", test_output)
+            self.assertEqual(doctor_code, 0)
+            self.assertIn("OK github_remote: GitHub remote found", doctor_output)
+
+    def test_onboard_does_not_overwrite_existing_files_without_force(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "existing-skill"
+            root.mkdir()
+            (root / "SKILL.md").write_text("# Existing Skill\n", encoding="utf-8")
+            (root / "skill.yaml").write_text(
+                "\n".join(
+                    [
+                        "name: custom-skill",
+                        "version: 2.0.0",
+                        "prompts:",
+                        "  skill: SKILL.md",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            code, output = _run_cli(["onboard", str(root)])
+
+            self.assertEqual(code, 0)
+            self.assertIn("Updated files:", output)
+            self.assertIn("skill.yaml", output)
+            manifest = (root / "skill.yaml").read_text(encoding="utf-8")
+            self.assertIn("version: 2.0.0", manifest)
+            self.assertIn("schemas:", manifest)
+            self.assertIn("tests:", manifest)
+
+    def test_onboard_fails_without_skill_md(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "not-a-skill"
+            root.mkdir()
+
+            code, stdout, stderr = _run_cli_capture(["onboard", str(root)])
+
+            self.assertEqual(code, 2)
+            self.assertEqual(stdout, "")
+            self.assertIn("Missing SKILL.md", stderr)
+
     def test_golden_match_modes_pass_and_fail(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             package = _write_package(Path(tmp) / "pkg", version="0.1.0")

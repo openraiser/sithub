@@ -22,6 +22,7 @@ The first stage is the local CLI `sit`. It should not reimplement Git storage, c
 The completed local loop now includes:
 
 - `sit init`
+- `sit onboard`
 - `sit info`
 - `sit doctor`
 - Git thin wrappers: `sit add`, `sit commit`, `sit push`, `sit pull`, `sit branch`, `sit checkout`, `sit log`
@@ -41,7 +42,7 @@ The completed local loop now includes:
 
 The next CLI milestone should focus on:
 
-- onboarding automation for existing `SKILL.md` projects
+- onboarding quality for existing `SKILL.md` projects: schema refinement guidance, report artifact policy, and stable CI install path
 - release artifact enhancements: stable release bundles and reproducibility archives
 
 The first validation packages are local generic examples:
