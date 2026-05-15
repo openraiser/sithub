@@ -5,11 +5,12 @@ This folder is the working space for SitHub and its local CLI, `sit`.
 Before doing any work in this folder, agents must:
 
 1. Read `00_项目枢纽.md`.
-2. Add a short entry to the "处理记录" section describing the intended action before making changes.
+2. Add a short entry to the "当前处理摘要" section describing the intended action before making changes.
 3. Execute the action.
 4. Update `00_项目枢纽.md` with any new files, decisions, validation results, or unresolved questions.
 
 The hub file is the first retrieval target for this project. Keep it current and concise.
+Do not read `docs/history/` by default. Only open history archives when you need to trace a specific decision, PR, bug, or the user explicitly asks for historical detail.
 
 Do not silently overwrite project assumptions. If a change modifies the CLI scope, package specification, diff/test semantics, versioning model, storage model, or pilot integration, record the change in the hub before applying it elsewhere.
 
@@ -40,11 +41,21 @@ The completed local loop now includes:
 - complex schema diff for `oneOf`, `allOf`, and local `$ref`
 - commit/release version gate for breaking-change and version bump consistency
 - friendlier version-gate errors and richer release notes
+- resource-aware diff events for `scripts/`, `assets/`, and `references/`
+- prompt/reference text summaries and `sit diff --prompt`
+- Git range report source labels that hide temporary snapshot paths in Markdown/HTML
+- `sit release --bundle` reproducibility archives with sha256 manifest and `reproduce.sh`
+- `sit deps check` for local `deps.yaml` path dependencies and non-blocking commit warnings
+- release reverse-dependency hints for sibling Skill packages
+- PyInstaller binary build dry-run via `scripts/build_binary.py`
 
 The next CLI milestone should focus on:
 
-- runner-backed behavior regression in the real `paper-webpage-builder` pilot
-- release artifact enhancements: stable release bundles and reproducibility archives
+- VS Code plugin minimum loop using existing JSON outputs
+- optional `sit diff --explain` only if it degrades gracefully without API keys
+- terminal polish for `sit info/status` while preserving JSON/plain compatibility
+- real PyInstaller build verification once PyInstaller is installed
+- a second real Skill pilot for `deps.yaml`, release bundles, and reverse dependencies
 
 The first validation packages are local generic examples:
 

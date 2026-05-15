@@ -9,6 +9,12 @@ import yaml
 
 from .errors import SitError
 
+RESOURCE_GROUPS = {
+    "scripts": "script",
+    "assets": "asset",
+    "references": "reference",
+}
+
 
 @dataclass(frozen=True)
 class SkillPackage:
@@ -42,6 +48,9 @@ class SkillPackage:
 
     def test_paths(self) -> dict[str, Path]:
         return _resolve_path_map(self, "tests")
+
+    def resource_paths(self) -> dict[str, dict[str, Path]]:
+        return {label: _resolve_resource_map(self, manifest_key) for manifest_key, label in RESOURCE_GROUPS.items()}
 
     def report_dir(self) -> Path:
         return (self.root / "reports").resolve()
@@ -107,3 +116,62 @@ def _resolve_path_map(package: SkillPackage, key: str) -> dict[str, Path]:
         else:
             raise SitError(f"skill.yaml field '{key}.{name}' must be a path string")
     return paths
+
+
+def _resolve_resource_map(package: SkillPackage, key: str) -> dict[str, Path]:
+    paths: dict[str, Path] = {}
+
+    resources = package.manifest.get("resources", {})
+    if resources is not None and not isinstance(resources, dict):
+        raise SitError("skill.yaml field 'resources' must be a mapping")
+    if isinstance(resources, dict):
+        paths.update(_resource_paths_from_value(package, resources.get(key)))
+
+    paths.update(_resource_paths_from_value(package, package.manifest.get(key)))
+
+    default_dir = package.root / key
+    if default_dir.exists() and default_dir.is_dir():
+        for path in sorted(default_dir.rglob("*")):
+            if not path.is_file() or _skip_resource_file(path):
+                continue
+            paths.setdefault(_resource_display_name(package, path), path.resolve())
+
+    return paths
+
+
+def _resource_paths_from_value(package: SkillPackage, value: Any) -> dict[str, Path]:
+    if value is None:
+        return {}
+    if isinstance(value, str):
+        path = package.resolve_manifest_path(value)
+        return {_resource_display_name(package, path): path}
+    if isinstance(value, list):
+        paths: dict[str, Path] = {}
+        for item in value:
+            if not isinstance(item, str):
+                raise SitError("skill.yaml resource lists must contain path strings")
+            path = package.resolve_manifest_path(item)
+            paths[_resource_display_name(package, path)] = path
+        return paths
+    if isinstance(value, dict):
+        paths = {}
+        for name, relative_path in value.items():
+            if not isinstance(relative_path, str):
+                raise SitError(f"skill.yaml resource field '{name}' must be a path string")
+            path = package.resolve_manifest_path(relative_path)
+            paths[_resource_display_name(package, path)] = path
+        return paths
+    raise SitError("skill.yaml resource fields must be a path string, list, or mapping")
+
+
+def _resource_display_name(package: SkillPackage, path: Path) -> str:
+    try:
+        return path.resolve().relative_to(package.root).as_posix()
+    except ValueError:
+        return path.name
+
+
+def _skip_resource_file(path: Path) -> bool:
+    if path.suffix in {".pyc", ".pyo"}:
+        return True
+    return any(part.startswith(".") or part == "__pycache__" for part in path.parts)

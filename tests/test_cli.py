@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 import json
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
@@ -45,6 +47,41 @@ class CliTest(unittest.TestCase):
             self.assertIn("PROMPT changed extraction", output)
             self.assertIn("SCHEMA output property added confidence (required)", output)
             self.assertIn("RISK breaking-change", output)
+
+    def test_diff_reports_resource_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old = _write_package(root / "old", version="0.1.0")
+            new = _write_package(root / "new", version="0.1.0")
+            _write_resource_files(old, script="print('old')\n", asset="template-v1\n", reference="guide v1\n")
+            _write_resource_files(new, script="print('new')\n", asset="template-v2\n", reference="guide v2\n")
+
+            text_code, text_output = _run_cli(["diff", str(old), str(new)])
+            json_code, json_output = _run_cli(["diff", str(old), str(new), "--format", "json"])
+            report_code, report_output = _run_cli(["report", str(new), "--compare", str(old)])
+            summary_code, summary_output = _run_cli(["pr-summary", str(old), str(new)])
+            ci_code, ci_output = _run_cli(["ci-summary", str(new), "--compare", str(old)])
+
+            self.assertEqual(text_code, 0)
+            self.assertIn("SCRIPT changed scripts/scan.py", text_output)
+            self.assertIn("ASSET changed assets/template.html", text_output)
+            self.assertIn("REFERENCE changed references/guide.md", text_output)
+            self.assertIn("RISK review-required", text_output)
+
+            self.assertEqual(json_code, 0)
+            payload = json.loads(json_output)
+            self.assertEqual(payload["risk"], "review-required")
+            self.assertEqual(payload["suggested_bump"], "minor")
+            self.assertTrue(any(event["category"] == "script" and "scripts/scan.py" in event["message"] for event in payload["events"]))
+            self.assertTrue(any(event["category"] == "asset" and "assets/template.html" in event["message"] for event in payload["events"]))
+            self.assertTrue(any(event["category"] == "reference" and "references/guide.md" in event["message"] for event in payload["events"]))
+
+            self.assertEqual(report_code, 0)
+            self.assertIn("SCRIPT changed scripts/scan.py", report_output)
+            self.assertEqual(summary_code, 0)
+            self.assertIn("ASSET changed assets/template.html", summary_output)
+            self.assertEqual(ci_code, 0)
+            self.assertIn("REFERENCE changed references/guide.md", ci_output)
 
     def test_diff_reports_recursive_schema_changes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -100,9 +137,17 @@ class CliTest(unittest.TestCase):
             old = _write_package(root / "old", version="0.1.0")
             new = _write_package(root / "new", version="0.2.0", extra_required={"confidence": {"type": "string"}})
 
+            text_code, text_output = _run_cli(["diff", str(old), str(new)])
+            plain_code, plain_output = _run_cli(["diff", str(old), str(new), "--format", "plain"])
             json_code, json_output = _run_cli(["diff", str(old), str(new), "--format", "json"])
             markdown_code, markdown_output = _run_cli(["diff", str(old), str(new), "--format", "markdown"])
 
+            self.assertEqual(text_code, 0)
+            self.assertIn("Skill Diff", text_output)
+            self.assertIn("[schema]", text_output)
+            self.assertEqual(plain_code, 0)
+            self.assertTrue(plain_output.startswith("PACKAGE sample-skill"))
+            self.assertNotIn("Skill Diff", plain_output)
             self.assertEqual(json_code, 0)
             payload = json.loads(json_output)
             self.assertEqual(payload["schema_version"], "sit.diff.v1")
@@ -114,6 +159,42 @@ class CliTest(unittest.TestCase):
             self.assertEqual(markdown_code, 0)
             self.assertIn("## Skill Diff", markdown_output)
             self.assertIn("Risk: `breaking-change`", markdown_output)
+
+    def test_diff_prompt_flag_outputs_text_diff_details(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old = _write_package(root / "old", version="0.1.0", prompt="# Task\nExtract {text}.\n")
+            new = _write_package(
+                root / "new",
+                version="0.1.0",
+                prompt="# Task\nExtract {text}.\n## Output\nCite {evidence}.\n",
+            )
+
+            default_code, default_output = _run_cli(["diff", str(old), str(new)])
+            prompt_code, prompt_output = _run_cli(["diff", str(old), str(new), "--prompt"])
+            json_code, json_output = _run_cli(["diff", str(old), str(new), "--prompt", "--format", "json"])
+            summary_code, summary_output = _run_cli(["pr-summary", str(old), str(new)])
+
+            self.assertEqual(default_code, 0)
+            self.assertIn("PROMPT changed extraction", default_output)
+            self.assertIn("+2 -0", default_output)
+            self.assertIn("headings: Task, Output", default_output)
+            self.assertIn("vars: text, evidence", default_output)
+            self.assertNotIn("Prompt/Reference Unified Diff", default_output)
+
+            self.assertEqual(prompt_code, 0)
+            self.assertIn("Prompt/Reference Unified Diff", prompt_output)
+            self.assertIn("+## Output", prompt_output)
+            self.assertIn("+Cite {evidence}.", prompt_output)
+
+            self.assertEqual(json_code, 0)
+            payload = json.loads(json_output)
+            self.assertEqual(payload["text_diffs"][0]["added_lines"], 2)
+            self.assertIn("+## Output", payload["text_diffs"][0]["lines"])
+
+            self.assertEqual(summary_code, 0)
+            self.assertIn("### Prompt/Reference Text Summary", summary_output)
+            self.assertIn("PROMPT summary extraction", summary_output)
 
     def test_report_writes_markdown(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -405,6 +486,92 @@ class CliTest(unittest.TestCase):
             self.assertIn("ERR manifest:", output)
             self.assertIn("Missing skill.yaml", output)
 
+    def test_deps_check_reports_local_version_and_schema_warnings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            upstream_old = _write_package(root / "upstream-old", version="0.1.0")
+            upstream_new = _write_package(root / "upstream-new", version="0.1.0")
+            _upgrade_package_to_v2(upstream_new)
+            downstream = _write_package(root / "downstream", version="0.1.0")
+            _write_deps_yaml(
+                downstream,
+                """
+dependencies:
+  - name: upstream
+    path: ../upstream-new
+    version: ">=0.1.0,<1.0.0"
+    baseline_path: ../upstream-old
+""",
+            )
+
+            code, output = _run_cli(["deps", "check", str(downstream)])
+            json_code, json_output = _run_cli(["deps", "check", str(downstream), "--format", "json"])
+
+            self.assertEqual(code, 0)
+            self.assertIn("Status: warn", output)
+            self.assertIn("schema risk: breaking-change", output)
+            self.assertIn("WARN upstream schema diff is breaking-change", output)
+            self.assertEqual(json_code, 0)
+            payload = json.loads(json_output)
+            self.assertEqual(payload["schema_version"], "sit.deps.v1")
+            self.assertEqual(payload["status"], "warn")
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["dependencies"][0]["risk"], "breaking-change")
+
+    def test_deps_check_fails_for_version_range_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            upstream = _write_package(root / "upstream", version="0.2.0")
+            downstream = _write_package(root / "downstream", version="0.1.0")
+            _write_deps_yaml(
+                downstream,
+                """
+dependencies:
+  - name: upstream
+    path: ../upstream
+    version: "<0.2.0"
+""",
+            )
+
+            code, output = _run_cli(["deps", "check", str(downstream)])
+
+            self.assertEqual(code, 1)
+            self.assertIn("Status: fail", output)
+            self.assertIn("ERR version 0.2.0 does not satisfy <0.2.0", output)
+            self.assertTrue(upstream.exists())
+
+    def test_commit_prints_dependency_warning_without_blocking(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            upstream_old = _write_package(root / "upstream-old", version="0.1.0")
+            upstream_new = _write_package(root / "upstream-new", version="0.1.0")
+            _upgrade_package_to_v2(upstream_new)
+            downstream = _write_package(root / "downstream", version="0.1.0")
+            _write_deps_yaml(
+                downstream,
+                """
+dependencies:
+  - name: upstream
+    path: ../upstream-new
+    version: ">=0.1.0,<1.0.0"
+    baseline_path: ../upstream-old
+""",
+            )
+            _git(downstream, "init")
+            _git(downstream, "config", "user.email", "sit@example.test")
+            _git(downstream, "config", "user.name", "SIT Test")
+            _git(downstream, "add", ".")
+            _git(downstream, "commit", "-m", "feat: initial skill")
+            (downstream / "prompts" / "extraction.md").write_text("Extract the answer carefully.", encoding="utf-8")
+            _git(downstream, "add", ".")
+
+            code, stdout, stderr = _run_cli_capture(["commit", "-m", "chore: update prompt", "--no-version-gate"], cwd=downstream)
+
+            self.assertEqual(code, 0)
+            self.assertIn("WARN dependency warning: upstream schema diff is breaking-change", stdout)
+            self.assertEqual(stderr, "")
+            self.assertTrue(upstream_old.exists())
+
     def test_onboard_existing_skill_project(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "paper-webpage-builder"
@@ -624,6 +791,28 @@ class CliTest(unittest.TestCase):
             self.assertEqual(payload["old"]["source"], "HEAD~1")
             self.assertEqual(payload["new"]["source"], "HEAD")
 
+    def test_git_range_diff_reports_script_resource_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            package = _write_package(Path(tmp) / "git-script-range-skill", version="0.1.0")
+            _write_resource_files(package, script="print('old')\n", asset="template\n", reference="guide\n")
+            _git(package, "init")
+            _git(package, "config", "user.email", "sit@example.test")
+            _git(package, "config", "user.name", "SIT Test")
+            _git(package, "add", ".")
+            _git(package, "commit", "-m", "feat: initial skill")
+
+            (package / "scripts" / "scan.py").write_text("print('new')\n", encoding="utf-8")
+            _git(package, "add", ".")
+            _git(package, "commit", "-m", "fix: update scanner")
+
+            code, output = _run_cli_in(package, ["diff", "HEAD~1..HEAD", "--format", "json"])
+
+            self.assertEqual(code, 0)
+            payload = json.loads(output)
+            self.assertEqual(payload["risk"], "review-required")
+            self.assertEqual(payload["suggested_bump"], "minor")
+            self.assertTrue(any(event["category"] == "script" and "scripts/scan.py" in event["message"] for event in payload["events"]))
+
     def test_git_range_works_from_package_subdirectory_in_repo(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp) / "repo"
@@ -658,12 +847,25 @@ class CliTest(unittest.TestCase):
             _git(package, "commit", "-m", "feat: require confidence")
 
             code, output = _run_cli_in(package, ["report", "--compare", "HEAD~1..HEAD"])
+            json_code, json_output = _run_cli_in(package, ["report", "--compare", "HEAD~1..HEAD", "--format", "json"])
+            html_code, html_output = _run_cli_in(package, ["report", "--compare", "HEAD~1..HEAD", "--format", "html"])
 
             self.assertEqual(code, 0)
             self.assertIn("# sample-skill 0.2.0 SIT Report", output)
+            self.assertIn("- Source: `HEAD`", output)
             self.assertIn("## Diff", output)
             self.assertIn("SCHEMA output property added confidence (required)", output)
             self.assertIn("python3 -m sit.cli diff HEAD~1..HEAD", output)
+            self.assertNotIn("/tmp/sit-ref-", output)
+            self.assertEqual(json_code, 0)
+            payload = json.loads(json_output)
+            self.assertEqual(payload["package"]["source"], "HEAD")
+            self.assertEqual(payload["diff"]["old"]["source"], "HEAD~1")
+            self.assertEqual(payload["diff"]["new"]["source"], "HEAD")
+            self.assertIn("/tmp/sit-ref-", payload["package"]["root"])
+            self.assertEqual(html_code, 0)
+            self.assertNotIn("/tmp/sit-ref-", html_output)
+            self.assertIn("python3 -m sit.cli diff HEAD~1..HEAD", html_output)
 
     def test_release_bumps_version_and_writes_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -677,6 +879,90 @@ class CliTest(unittest.TestCase):
             manifest = (package / "skill.yaml").read_text(encoding="utf-8")
             self.assertIn("version: 0.2.0", manifest)
             self.assertTrue((package / "reports" / "release-v0.2.0.md").exists())
+
+    def test_release_bundle_is_reproducible_package_archive(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            package = _write_package(root / "pkg", version="0.1.0")
+            _write_resource_files(package, script="print('scan')\n", asset="<main></main>\n", reference="# Guide\n")
+
+            code, output = _run_cli(["release", "minor", str(package), "--no-git-tag", "--bundle"])
+
+            self.assertEqual(code, 0)
+            self.assertIn("bundle:", output)
+            bundle_path = package / "dist" / "sample-skill-v0.2.0.tar.gz"
+            self.assertTrue(bundle_path.exists())
+
+            extract_dir = root / "extract"
+            with tarfile.open(bundle_path, "r:gz") as archive:
+                archive.extractall(extract_dir)
+
+            unpacked = extract_dir / "sample-skill-v0.2.0"
+            self.assertTrue((unpacked / "skill.yaml").exists())
+            self.assertTrue((unpacked / "manifest.json").exists())
+            self.assertTrue((unpacked / "reproduce.sh").exists())
+            self.assertTrue((unpacked / "scripts" / "scan.py").exists())
+            manifest = json.loads((unpacked / "manifest.json").read_text(encoding="utf-8"))
+            script_entry = next(item for item in manifest["files"] if item["path"] == "scripts/scan.py")
+            script_bytes = (unpacked / "scripts" / "scan.py").read_bytes()
+            self.assertEqual(script_entry["sha256"], hashlib.sha256(script_bytes).hexdigest())
+
+            validate_code, validate_output = _run_cli(["validate", str(unpacked)])
+            test_code, test_output = _run_cli(["test", str(unpacked)])
+            self.assertEqual(validate_code, 0)
+            self.assertIn("OK  schema.output JSON schema valid", validate_output)
+            self.assertEqual(test_code, 0)
+            self.assertIn("SUMMARY 1/1 golden cases passed", test_output)
+
+    def test_release_reports_reverse_dependency_compatibility(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            upstream = _write_package(root / "upstream", version="0.1.0")
+            compatible = _write_package(root / "downstream-compatible", version="0.1.0")
+            incompatible = _write_package(root / "downstream-incompatible", version="0.1.0")
+            _write_deps_yaml(
+                compatible,
+                """
+dependencies:
+  - name: upstream
+    path: ../upstream
+    version: ">=0.2.0,<1.0.0"
+""",
+            )
+            _write_deps_yaml(
+                incompatible,
+                """
+dependencies:
+  - name: upstream
+    path: ../upstream
+    version: "<0.2.0"
+""",
+            )
+
+            code, output = _run_cli(["release", "minor", str(upstream), "--no-git-tag"])
+
+            self.assertEqual(code, 0)
+            self.assertIn("reverse deps: 1 compatible, 0 review, 1 incompatible", output)
+            report = (upstream / "reports" / "release-v0.2.0.md").read_text(encoding="utf-8")
+            self.assertIn("## Reverse Dependencies", report)
+            self.assertIn("- compatible:", report)
+            self.assertIn("- incompatible:", report)
+            self.assertIn("version 0.2.0 does not satisfy <0.2.0", report)
+
+    def test_build_binary_dry_run_outputs_pyinstaller_command(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+
+        completed = subprocess.run(
+            [sys.executable, "scripts/build_binary.py", "--dry-run"],
+            cwd=root,
+            check=True,
+            text=True,
+            capture_output=True,
+        )
+
+        self.assertIn("PyInstaller", completed.stdout)
+        self.assertIn("--onefile", completed.stdout)
+        self.assertIn("sit_launcher.py", completed.stdout)
 
     def test_git_wrappers_can_add_and_commit_initialized_package(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -757,11 +1043,19 @@ class CliTest(unittest.TestCase):
             self.assertIn("version: 1.0.0", (package / "skill.yaml").read_text(encoding="utf-8"))
             changelog = (package / "CHANGELOG.md").read_text(encoding="utf-8")
             report = (package / "reports" / "release-v1.0.0.md").read_text(encoding="utf-8")
+            self.assertIn("### Breaking", changelog)
+            self.assertIn("### Changes", changelog)
+            self.assertIn("### Risk", changelog)
             self.assertIn("Release risk: breaking-change", changelog)
+            self.assertIn("Suggested bump: major", changelog)
             self.assertIn("Version gate: required major, actual major", changelog)
+            self.assertIn("Golden tests: pass (1/1)", changelog)
+            self.assertIn("### Reproduce", changelog)
             self.assertIn("SCHEMA output property added confidence (required)", changelog)
             self.assertIn("## Release Summary", report)
             self.assertIn("release version gate passed", report)
+            self.assertIn("### Breaking", report)
+            self.assertIn("### Reproduce", report)
             self.assertIn("SCHEMA output property added confidence (required)", report)
 
 
@@ -999,6 +1293,19 @@ def _write_runner_script(root: Path, *, answer_expr: str) -> None:
         ),
         encoding="utf-8",
     )
+
+
+def _write_resource_files(root: Path, *, script: str, asset: str, reference: str) -> None:
+    (root / "scripts").mkdir(exist_ok=True)
+    (root / "assets").mkdir(exist_ok=True)
+    (root / "references").mkdir(exist_ok=True)
+    (root / "scripts" / "scan.py").write_text(script, encoding="utf-8")
+    (root / "assets" / "template.html").write_text(asset, encoding="utf-8")
+    (root / "references" / "guide.md").write_text(reference, encoding="utf-8")
+
+
+def _write_deps_yaml(root: Path, content: str) -> None:
+    (root / "deps.yaml").write_text(content.strip() + "\n", encoding="utf-8")
 
 
 def _append_runner_command(root: Path) -> None:

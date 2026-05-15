@@ -7,6 +7,7 @@ from pathlib import Path
 
 from . import __version__
 from .ci import render_ci_summary
+from .deps import check_dependencies, dependency_warnings_for_commit, render_deps_text
 from .doctor import build_doctor_payload, render_doctor_text
 from .diff import diff_packages
 from .errors import SitError
@@ -79,6 +80,16 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return 0 if payload["ok"] else 1
 
 
+def cmd_deps_check(args: argparse.Namespace) -> int:
+    package = load_package(args.package)
+    payload = check_dependencies(package)
+    if args.format == "json":
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        print(render_deps_text(payload), end="")
+    return 0 if payload["ok"] else 1
+
+
 def cmd_onboard(args: argparse.Namespace) -> int:
     result = onboard_existing_skill(
         args.path,
@@ -117,6 +128,9 @@ def cmd_test(args: argparse.Namespace) -> int:
         return 1
 
     result = run_golden_schema_tests(package, run_actual=args.run, runner=args.runner, timeout=args.timeout)
+    print("Skill Tests")
+    print(f"Result: {'pass' if result.ok else 'fail'}")
+    print()
     for message in result.messages:
         print(message)
     return 0 if result.ok else 1
@@ -134,6 +148,7 @@ def cmd_diff(args: argparse.Namespace) -> int:
                 args.format,
                 old_source=git_range.old if git_range else args.old,
                 new_source=git_range.new if git_range else args.new,
+                show_prompt_diff=args.prompt,
             ),
             end="",
         )
@@ -147,16 +162,37 @@ def cmd_report(args: argparse.Namespace) -> int:
         diff_command = f"python3 -m sit.cli diff {args.compare}" if compare_range else None
         if args.format == "json":
             content = json.dumps(
-                build_report_payload(package, compare=compare, package_spec=package_spec, diff_command=diff_command),
+                build_report_payload(
+                    package,
+                    compare=compare,
+                    package_spec=package_spec,
+                    diff_command=diff_command,
+                    package_source=compare_range.new if compare_range else None,
+                    compare_source=compare_range.old if compare_range else None,
+                ),
                 ensure_ascii=False,
                 indent=2,
             ) + "\n"
         elif args.format == "html":
             content = render_report_html(
-                build_report_payload(package, compare=compare, package_spec=package_spec, diff_command=diff_command)
+                build_report_payload(
+                    package,
+                    compare=compare,
+                    package_spec=package_spec,
+                    diff_command=diff_command,
+                    package_source=compare_range.new if compare_range else None,
+                    compare_source=compare_range.old if compare_range else None,
+                )
             )
         else:
-            content = build_report(package, compare=compare, package_spec=package_spec, diff_command=diff_command)
+            content = build_report(
+                package,
+                compare=compare,
+                package_spec=package_spec,
+                diff_command=diff_command,
+                package_source=compare_range.new if compare_range else None,
+                compare_source=compare_range.old if compare_range else None,
+            )
 
     if args.output:
         output = Path(args.output).expanduser().resolve()
@@ -177,7 +213,14 @@ def cmd_ci_summary(args: argparse.Namespace) -> int:
         diff_command = f"python3 -m sit.cli diff {args.compare}" if compare_range else None
         if compare_range:
             diff_command = f"python3 -m sit.cli report {package_spec_arg} --compare {compare_spec}"
-        payload = build_report_payload(package, compare=compare, package_spec=package_spec, diff_command=diff_command)
+        payload = build_report_payload(
+            package,
+            compare=compare,
+            package_spec=package_spec,
+            diff_command=diff_command,
+            package_source=compare_range.new if compare_range else None,
+            compare_source=compare_range.old if compare_range else None,
+        )
         content = render_ci_summary(payload)
 
     if args.artifact_dir:
@@ -228,6 +271,8 @@ def cmd_commit(args: argparse.Namespace) -> int:
             print(gate.message)
             if not gate.ok:
                 raise SitError(format_gate_failure(gate))
+        for warning in dependency_warnings_for_commit(package):
+            print(f"WARN {warning}")
 
     git_args = ["commit"]
     if args.message:
@@ -261,7 +306,15 @@ def cmd_pr_summary(args: argparse.Namespace) -> int:
 
 def cmd_release(args: argparse.Namespace) -> int:
     package = load_package(args.package)
-    print(release_package(package, args.bump, no_git_tag=args.no_git_tag, no_version_gate=args.no_version_gate))
+    print(
+        release_package(
+            package,
+            args.bump,
+            no_git_tag=args.no_git_tag,
+            no_version_gate=args.no_version_gate,
+            bundle=args.bundle,
+        )
+    )
     return 0
 
 
@@ -290,6 +343,13 @@ def _build_parser() -> argparse.ArgumentParser:
     doctor.add_argument("--format", choices=["text", "json"], default="text", help="Output format")
     doctor.set_defaults(func=cmd_doctor)
 
+    deps = subparsers.add_parser("deps", help="Check local Skill Package dependencies")
+    deps_subparsers = deps.add_subparsers(dest="deps_command", required=True)
+    deps_check = deps_subparsers.add_parser("check", help="Validate deps.yaml local path dependencies")
+    deps_check.add_argument("package", nargs="?", default=".", help="Skill Package directory or skill.yaml")
+    deps_check.add_argument("--format", choices=["text", "json"], default="text", help="Output format")
+    deps_check.set_defaults(func=cmd_deps_check)
+
     onboard = subparsers.add_parser("onboard", help="Onboard an existing SKILL.md project into a SitHub Skill Package")
     onboard.add_argument("path", nargs="?", default=".", help="Existing Skill directory containing SKILL.md")
     onboard.add_argument("--name", help="Skill Package name; defaults to the directory name")
@@ -315,7 +375,8 @@ def _build_parser() -> argparse.ArgumentParser:
     diff = subparsers.add_parser("diff", help="Compare two Skill Package directories or a Git range")
     diff.add_argument("old", help="Baseline Skill Package directory, skill.yaml, or Git range such as main..HEAD")
     diff.add_argument("new", nargs="?", help="Current Skill Package directory or skill.yaml")
-    diff.add_argument("--format", choices=["text", "markdown", "json"], default="text", help="Output format")
+    diff.add_argument("--format", choices=["text", "plain", "markdown", "json"], default="text", help="Output format")
+    diff.add_argument("--prompt", action="store_true", help="Include prompt/reference unified text diffs")
     diff.set_defaults(func=cmd_diff)
 
     report = subparsers.add_parser("report", help="Generate a validation, test, and reproducibility report")
@@ -348,6 +409,7 @@ def _build_parser() -> argparse.ArgumentParser:
     release.add_argument("package", nargs="?", default=".", help="Skill Package directory or skill.yaml")
     release.add_argument("--no-git-tag", action="store_true", help="Skip creating an annotated Git tag")
     release.add_argument("--no-version-gate", action="store_true", help="Skip semantic diff versus version bump consistency check")
+    release.add_argument("--bundle", action="store_true", help="Write a reproducible release tarball under dist/")
     release.set_defaults(func=cmd_release)
 
     for git_command in ("add", "push", "pull", "branch", "checkout", "log"):
@@ -395,10 +457,19 @@ def _write_ci_artifacts(directory: Path, payload: dict, summary: str) -> None:
     (directory / "sit-report.html").write_text(render_report_html(payload), encoding="utf-8")
 
 
-def _render_diff(result, old, new, output_format: str, *, old_source: str | None = None, new_source: str | None = None) -> str:
+def _render_diff(
+    result,
+    old,
+    new,
+    output_format: str,
+    *,
+    old_source: str | None = None,
+    new_source: str | None = None,
+    show_prompt_diff: bool = False,
+) -> str:
     if output_format == "json":
         return json.dumps(
-            result.to_dict(old, new, old_source=old_source, new_source=new_source),
+            result.to_dict(old, new, old_source=old_source, new_source=new_source, include_text_diffs=show_prompt_diff),
             ensure_ascii=False,
             indent=2,
         ) + "\n"
@@ -415,8 +486,49 @@ def _render_diff(result, old, new, output_format: str, *, old_source: str | None
             "",
         ]
         lines.extend(f"- `{message}`" for message in result.messages)
+        if result.text_diffs:
+            lines.extend(["", "### Prompt/Reference Text Summary", ""])
+            lines.extend(f"- `{text_diff.summary}`" for text_diff in result.text_diffs)
+        if show_prompt_diff and result.text_diffs:
+            lines.extend(["", "### Prompt/Reference Unified Diff", ""])
+            for text_diff in result.text_diffs:
+                lines.extend([f"#### {text_diff.kind}: {text_diff.name}", "", "```diff"])
+                lines.extend(text_diff.lines)
+                lines.extend(["```", ""])
         return "\n".join(lines) + "\n"
-    return "\n".join(result.messages) + "\n"
+    if output_format == "plain":
+        lines = list(result.messages)
+        if show_prompt_diff and result.text_diffs:
+            lines.extend(["", "Prompt/Reference Unified Diff:"])
+            for text_diff in result.text_diffs:
+                lines.append(f"--- {text_diff.kind}: {text_diff.name}")
+                lines.extend(text_diff.lines)
+        return "\n".join(lines) + "\n"
+
+    lines = [
+        "Skill Diff",
+        f"Baseline: {old.name or '<unknown>'}@{old.version or '<unknown>'}",
+        f"Current: {new.name or '<unknown>'}@{new.version or '<unknown>'}",
+        f"Risk: {result.risk}",
+        f"Suggested version bump: {result.suggested_bump}",
+        "",
+    ]
+    grouped: dict[str, list[str]] = {}
+    for event in result.events:
+        grouped.setdefault(event.category, []).append(event.message)
+    for category in sorted(grouped):
+        lines.append(f"[{category}]")
+        lines.extend(f"  - {message}" for message in grouped[category])
+        lines.append("")
+    if result.text_diffs:
+        lines.extend(["Prompt/Reference Text Summary:"])
+        lines.extend(text_diff.summary for text_diff in result.text_diffs)
+    if show_prompt_diff and result.text_diffs:
+        lines.extend(["", "Prompt/Reference Unified Diff:"])
+        for text_diff in result.text_diffs:
+            lines.append(f"--- {text_diff.kind}: {text_diff.name}")
+            lines.extend(text_diff.lines)
+    return "\n".join(lines) + "\n"
 
 
 def _render_pr_summary(

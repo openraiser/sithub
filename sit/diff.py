@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import difflib
 import json
 from pathlib import Path
+import re
 from typing import Any
 
 from .errors import SitError
@@ -34,10 +36,49 @@ class DiffEvent:
         }
 
 
+@dataclass(frozen=True)
+class TextDiff:
+    kind: str
+    name: str
+    old_path: str
+    new_path: str
+    added_lines: int
+    removed_lines: int
+    headings: list[str] = field(default_factory=list)
+    variables: list[str] = field(default_factory=list)
+    lines: list[str] = field(default_factory=list)
+
+    @property
+    def summary(self) -> str:
+        details = [f"+{self.added_lines} -{self.removed_lines}"]
+        if self.headings:
+            details.append("headings: " + ", ".join(self.headings[:5]))
+        if self.variables:
+            details.append("vars: " + ", ".join(self.variables[:8]))
+        return f"{self.kind.upper()} summary {self.name}: " + "; ".join(details)
+
+    def to_dict(self, *, include_lines: bool = False) -> dict[str, Any]:
+        data: dict[str, Any] = {
+            "kind": self.kind,
+            "name": self.name,
+            "old_path": self.old_path,
+            "new_path": self.new_path,
+            "added_lines": self.added_lines,
+            "removed_lines": self.removed_lines,
+            "headings": self.headings,
+            "variables": self.variables,
+            "summary": self.summary,
+        }
+        if include_lines:
+            data["lines"] = self.lines
+        return data
+
+
 @dataclass
 class PackageDiff:
     messages: list[str] = field(default_factory=list)
     events: list[DiffEvent] = field(default_factory=list)
+    text_diffs: list[TextDiff] = field(default_factory=list)
     breaking: bool = False
     changed: bool = False
 
@@ -77,6 +118,7 @@ class PackageDiff:
         *,
         old_source: str | None = None,
         new_source: str | None = None,
+        include_text_diffs: bool = False,
     ) -> dict[str, Any]:
         return {
             "schema_version": "sit.diff.v1",
@@ -88,6 +130,7 @@ class PackageDiff:
             "suggested_bump": self.suggested_bump,
             "messages": self.messages,
             "events": [event.to_dict() for event in self.events],
+            "text_diffs": [text_diff.to_dict(include_lines=include_text_diffs) for text_diff in self.text_diffs],
         }
 
 
@@ -99,7 +142,8 @@ def diff_packages(old: SkillPackage, new: SkillPackage) -> PackageDiff:
     )
 
     _diff_manifest(result, old.manifest, new.manifest)
-    _diff_path_group(result, "prompt", old.prompt_paths(), new.prompt_paths(), compare_text=True)
+    _diff_path_group(result, "prompt", old.prompt_paths(), new.prompt_paths(), compare_text=True, collect_text_diff=True)
+    _diff_resource_groups(result, old, new)
     _diff_schema_group(result, old.schema_paths(), new.schema_paths())
     _diff_path_group(result, "test", old.test_paths(), new.test_paths(), compare_text=True)
     _diff_golden_cases(result, old, new)
@@ -135,6 +179,7 @@ def _diff_path_group(
     new_paths: dict[str, Path],
     *,
     compare_text: bool,
+    collect_text_diff: bool = False,
 ) -> None:
     old_names = set(old_paths)
     new_names = set(new_paths)
@@ -152,8 +197,120 @@ def _diff_path_group(
         new_path = new_paths[name]
         if not old_path.exists() or not new_path.exists():
             continue
-        if old_path.read_text(encoding="utf-8") != new_path.read_text(encoding="utf-8"):
-            result.add(f"{label.upper()} changed {name}: {old_path.name} -> {new_path.name}", changed=True)
+        old_text = old_path.read_text(encoding="utf-8")
+        new_text = new_path.read_text(encoding="utf-8")
+        if old_text != new_text:
+            detail = ""
+            if collect_text_diff:
+                text_diff = _build_text_diff(label, name, old_path, new_path, old_text, new_text)
+                result.text_diffs.append(text_diff)
+                detail = " (" + _text_diff_inline_summary(text_diff) + ")"
+            result.add(f"{label.upper()} changed {name}: {old_path.name} -> {new_path.name}{detail}", changed=True)
+
+
+def _diff_resource_groups(result: PackageDiff, old: SkillPackage, new: SkillPackage) -> None:
+    old_groups = old.resource_paths()
+    new_groups = new.resource_paths()
+    for label in ("script", "asset", "reference"):
+        _diff_resource_group(result, label, old_groups.get(label, {}), new_groups.get(label, {}))
+
+
+def _diff_resource_group(result: PackageDiff, label: str, old_paths: dict[str, Path], new_paths: dict[str, Path]) -> None:
+    old_names = set(old_paths)
+    new_names = set(new_paths)
+
+    for name in sorted(new_names - old_names):
+        result.add(_resource_message(label, "added", name), changed=True, category=label)
+    for name in sorted(old_names - new_names):
+        result.add(_resource_message(label, "removed", name), changed=True, category=label)
+
+    for name in sorted(old_names & new_names):
+        old_path = old_paths[name]
+        new_path = new_paths[name]
+        if not old_path.exists() or not new_path.exists():
+            continue
+        if old_path.read_bytes() != new_path.read_bytes():
+            detail = ""
+            if label == "reference":
+                text_diff = _try_build_text_diff(label, name, old_path, new_path)
+                if text_diff is not None:
+                    result.text_diffs.append(text_diff)
+                    detail = " (" + _text_diff_inline_summary(text_diff) + ")"
+            result.add(_resource_message(label, "changed", name, detail=detail), changed=True, category=label)
+
+
+def _resource_message(label: str, action: str, name: str, *, detail: str = "") -> str:
+    message = f"{label.upper()} {action} {name}{detail}"
+    if label == "script":
+        message += " (review required; cover with runner or targeted tests)"
+    return message
+
+
+def _try_build_text_diff(kind: str, name: str, old_path: Path, new_path: Path) -> TextDiff | None:
+    try:
+        old_text = old_path.read_text(encoding="utf-8")
+        new_text = new_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return None
+    return _build_text_diff(kind, name, old_path, new_path, old_text, new_text)
+
+
+def _build_text_diff(kind: str, name: str, old_path: Path, new_path: Path, old_text: str, new_text: str) -> TextDiff:
+    diff_lines = list(
+        difflib.unified_diff(
+            old_text.splitlines(),
+            new_text.splitlines(),
+            fromfile=str(old_path.name),
+            tofile=str(new_path.name),
+            lineterm="",
+        )
+    )
+    added = sum(1 for line in diff_lines if line.startswith("+") and not line.startswith("+++"))
+    removed = sum(1 for line in diff_lines if line.startswith("-") and not line.startswith("---"))
+    return TextDiff(
+        kind=kind,
+        name=name,
+        old_path=str(old_path),
+        new_path=str(new_path),
+        added_lines=added,
+        removed_lines=removed,
+        headings=_extract_headings(new_text),
+        variables=_extract_template_variables(new_text),
+        lines=diff_lines,
+    )
+
+
+def _text_diff_inline_summary(text_diff: TextDiff) -> str:
+    parts = [f"+{text_diff.added_lines} -{text_diff.removed_lines}"]
+    if text_diff.headings:
+        parts.append("headings: " + ", ".join(text_diff.headings[:3]))
+    if text_diff.variables:
+        parts.append("vars: " + ", ".join(text_diff.variables[:5]))
+    return "; ".join(parts)
+
+
+def _extract_headings(text: str) -> list[str]:
+    headings: list[str] = []
+    for line in text.splitlines():
+        match = re.match(r"^\s{0,3}#{1,6}\s+(.+?)\s*$", line)
+        if match:
+            headings.append(match.group(1).strip().rstrip("#").strip())
+    return _dedupe(headings)
+
+
+def _extract_template_variables(text: str) -> list[str]:
+    return _dedupe(match.group(1) for match in re.finditer(r"\{([A-Za-z_][A-Za-z0-9_.-]*)\}", text))
+
+
+def _dedupe(values) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result
 
 
 def _diff_schema_group(result: PackageDiff, old_paths: dict[str, Path], new_paths: dict[str, Path]) -> None:

@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>sit - AI Skill 版本控制工具</title>
+<style>
+:root {
+  --bg: #f5f6fa;
+  --card: #ffffff;
+  --border: #e2e8f0;
+  --text: #1e293b;
+  --muted: #64748b;
+  --primary: #4f46e5;
+  --primary-light: #eef2ff;
+  --success: #059669;
+  --success-bg: #d1fae5;
+  --danger: #dc2626;
+  --danger-bg: #fee2e2;
+  --warning: #d97706;
+  --warning-bg: #fef3c7;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  letter-spacing: 0;
+}
+header {
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.logo-icon {
+  width: 36px; height: 36px;
+  background: var(--primary); border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-weight: 700; font-size: 18px;
+}
+.logo-text { font-size: 18px; font-weight: 600; }
+.logo-sub { color: var(--muted); font-size: 13px; margin-left: 8px; font-weight: 400; }
+.header-link { color: var(--muted); font-size: 13px; text-decoration: none; display: flex; align-items: center; gap: 5px; }
+.header-link:hover { color: var(--primary); }
+
+main { max-width: 1100px; margin: 0 auto; padding: 28px 16px 60px; }
+
+.hero {
+  text-align: center;
+  padding: 48px 20px 36px;
+}
+.hero h1 { font-size: 36px; font-weight: 700; margin-bottom: 10px; }
+.hero p { color: var(--muted); font-size: 16px; max-width: 560px; margin: 0 auto 28px; line-height: 1.6; }
+
+.input-area {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 24px;
+  margin-bottom: 20px;
+}
+.input-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+@media (max-width: 640px) { .input-row { grid-template-columns: 1fr; } }
+.input-label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; }
+textarea {
+  width: 100%; min-height: 200px;
+  padding: 14px;
+  border: 1px solid var(--border); border-radius: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px; line-height: 1.7;
+  resize: vertical; background: #fafafa; color: var(--text);
+  transition: border-color .15s;
+}
+textarea:focus { outline: none; border-color: var(--primary); }
+textarea::placeholder { color: #94a3b8; }
+
+.btn-row { display: flex; gap: 10px; justify-content: center; }
+.btn {
+  padding: 12px 28px; border: none; border-radius: 8px;
+  font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+  transition: all .15s;
+}
+.btn-primary { background: var(--primary); color: #fff; box-shadow: 0 2px 8px rgba(79,70,229,.3); }
+.btn-primary:hover { background: #4338ca; box-shadow: 0 4px 12px rgba(79,70,229,.4); }
+.btn-ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+.btn-ghost:hover { background: var(--bg); color: var(--text); }
+
+.result-area { display: none; }
+.result-area.visible { display: block; }
+
+/* ===== Risk Banner ===== */
+.risk-banner {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+@media (max-width: 640px) { .risk-banner { grid-template-columns: 1fr 1fr; } }
+.risk-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px;
+  text-align: center;
+}
+.risk-card .label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-bottom: 6px; }
+.risk-card .value { font-size: 22px; font-weight: 700; }
+.risk-card .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.pass { color: var(--success); }
+.fail { color: var(--danger); }
+.warn { color: var(--warning); }
+
+/* ===== Change Summary ===== */
+.change-section {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+.section-head {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex; justify-content: space-between; align-items: center;
+}
+.section-head h2 { font-size: 16px; font-weight: 600; }
+.badge { font-size: 12px; padding: 3px 10px; border-radius: 20px; font-weight: 600; }
+.badge-danger { background: var(--danger-bg); color: var(--danger); }
+.badge-warn { background: var(--warning-bg); color: var(--warning); }
+.badge-success { background: var(--success-bg); color: var(--success); }
+.badge-neutral { background: var(--primary-light); color: var(--primary); }
+.section-body { padding: 16px 20px; }
+
+/* ===== Diff ===== */
+.diff-view { display: flex; flex-direction: column; gap: 0; }
+.diff-line {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px; line-height: 1.7;
+  padding: 2px 8px; border-radius: 3px;
+}
+.diff-add { background: var(--success-bg); color: #065f46; }
+.diff-remove { background: var(--danger-bg); color: #991b1b; text-decoration: line-through; }
+.diff-var { background: #e0e7ff; color: var(--primary); padding: 1px 4px; border-radius: 3px; font-size: 11px; }
+.stats-row { display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.stat-chip { font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 20px; }
+.chip-add { background: var(--success-bg); color: var(--success); }
+.chip-remove { background: var(--danger-bg); color: var(--danger); }
+
+/* ===== Schema Cards ===== */
+.schema-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 640px) { .schema-grid { grid-template-columns: 1fr; } }
+.schema-card {
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.schema-card h3 {
+  padding: 10px 14px;
+  font-size: 13px; font-weight: 600;
+  background: #f1f5f9;
+  border-bottom: 1px solid var(--border);
+  display: flex; justify-content: space-between; align-items: center;
+}
+.schema-card h3 .tag { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 10px; }
+.schema-card h3 .tag-new { background: var(--success-bg); color: var(--success); }
+.schema-card h3 .tag-same { background: var(--primary-light); color: var(--primary); }
+.schema-body { padding: 12px 14px; max-height: 320px; overflow-y: auto; }
+.field-item { padding: 6px 0; border-bottom: 1px solid #f1f5f9; }
+.field-item:last-child { border-bottom: none; }
+.field-name { font-family: ui-monospace, monospace; font-size: 13px; font-weight: 500; color: var(--primary); }
+.field-name .req { color: var(--danger); font-size: 10px; margin-left: 4px; font-weight: 700; }
+.field-name .opt { color: var(--success); font-size: 10px; margin-left: 4px; }
+.field-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.field-note { font-size: 12px; color: var(--warning); margin-top: 2px; }
+.changes-list { display: flex; flex-direction: column; gap: 8px; }
+.change-item {
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  border-left: 4px solid;
+}
+.change-item.breaking { background: var(--danger-bg); border-color: var(--danger); color: #991b1b; }
+.change-item.added { background: var(--success-bg); border-color: var(--success); color: #065f46; }
+.change-item.removed { background: var(--danger-bg); border-color: var(--danger); color: #991b1b; }
+.change-item.info { background: var(--primary-light); border-color: var(--primary); color: #3730a3; }
+.change-item strong { font-weight: 600; }
+.event-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 640px) { .event-grid { grid-template-columns: 1fr; } }
+.event-card {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+.event-card strong { display: block; font-size: 13px; margin-bottom: 4px; }
+.event-card span { display: block; color: var(--muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.event-card.script { border-left: 4px solid var(--warning); }
+.event-card.prompt, .event-card.reference { border-left: 4px solid var(--primary); }
+.event-card.asset { border-left: 4px solid var(--success); }
+
+/* ===== Skill YAML ===== */
+.yaml-block {
+  background: #0f172a;
+  border-radius: 10px;
+  padding: 18px 20px;
+  overflow-x: auto;
+}
+.yaml-block pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px; line-height: 1.7;
+  color: #e2e8f0; margin: 0;
+  white-space: pre;
+}
+.copy-btn {
+  padding: 4px 12px; font-size: 12px; font-weight: 600;
+  border: 1px solid #475569; background: transparent;
+  color: #94a3b8; border-radius: 6px; cursor: pointer;
+  transition: all .15s;
+}
+.copy-btn:hover { background: #1e293b; color: #e2e8f0; }
+.copy-btn.copied { background: var(--success-bg); color: var(--success); border-color: var(--success); }
+
+.alert-box {
+  padding: 12px 16px; border-radius: 8px;
+  font-size: 13px; margin-top: 10px;
+}
+.alert-danger { background: var(--danger-bg); border: 1px solid var(--danger); color: #991b1b; }
+.alert-success { background: var(--success-bg); border: 1px solid var(--success); color: #065f46; }
+.alert-warn { background: var(--warning-bg); border: 1px solid var(--warning); color: #92400e; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">
+    <div class="logo-icon">S</div>
+    <span class="logo-text">sit</span>
+    <span class="logo-sub">AI Skill 版本控制工具</span>
+  </div>
+  <a class="header-link" href="https://github.com/OpenRaiser/SitHub" target="_blank">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>
+    GitHub
+  </a>
+</header>
+
+<main>
+  <div class="hero">
+    <h1>Prompt 改了什么？</h1>
+    <p>粘贴两个版本的 prompt，自动分析变更内容、推断 Schema、检测 breaking change、生成完整的 Skill 包配置。</p>
+  </div>
+
+  <div class="input-area">
+    <div class="input-row">
+      <div>
+        <div class="input-label">旧版本 Prompt</div>
+        <textarea id="old-prompt" placeholder="粘贴旧版本的 prompt..."></textarea>
+      </div>
+      <div>
+        <div class="input-label">新版本 Prompt</div>
+        <textarea id="new-prompt" placeholder="粘贴新版本的 prompt..."></textarea>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-ghost" onclick="clearAll()">清空</button>
+      <button class="btn btn-primary" onclick="analyze()">&#x2192; 分析变更</button>
+    </div>
+  </div>
+
+  <div class="result-area" id="result-area">
+
+    <!-- Risk Banner -->
+    <div class="risk-banner" id="risk-banner"></div>
+
+    <!-- Change Summary -->
+    <div class="change-section">
+      <div class="section-head">
+        <h2>&#9881; 变更摘要</h2>
+        <span id="risk-badge"></span>
+      </div>
+      <div class="section-body">
+        <div class="changes-list" id="changes-list"></div>
+      </div>
+    </div>
+
+    <!-- Semantic Events -->
+    <div class="change-section">
+      <div class="section-head">
+        <h2>&#128269; SitHub 事件预览</h2>
+        <span class="badge badge-neutral">diff v0.18</span>
+      </div>
+      <div class="section-body">
+        <div class="event-grid" id="semantic-events"></div>
+      </div>
+    </div>
+
+    <!-- Diff -->
+    <div class="change-section" id="diff-section" style="display:none">
+      <div class="section-head">
+        <h2>&#8646; 文本对比</h2>
+      </div>
+      <div class="section-body">
+        <div class="stats-row" id="diff-stats"></div>
+        <div class="diff-view" id="diff-view"></div>
+      </div>
+    </div>
+
+    <!-- Schema Inference -->
+    <div class="change-section">
+      <div class="section-head">
+        <h2>&#128196; 推断的 Schema</h2>
+        <span class="badge badge-neutral">自动生成</span>
+      </div>
+      <div class="section-body">
+        <div class="schema-grid">
+          <div class="schema-card">
+            <h3>Input Schema <span class="tag tag-same">输入</span></h3>
+            <div class="schema-body" id="input-schema"></div>
+          </div>
+          <div class="schema-card">
+            <h3>Output Schema <span class="tag" id="output-tag">推断</span></h3>
+            <div class="schema-body" id="output-schema"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Skill.yaml -->
+    <div class="change-section">
+      <div class="section-head">
+        <h2>&#9881; Skill 包配置</h2>
+        <button class="copy-btn" id="copy-btn" onclick="copyYaml()">&#128203; 复制</button>
+      </div>
+      <div class="section-body">
+        <div class="yaml-block">
+          <pre id="yaml-output"></pre>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<script>
+// ===== Utility =====
+function escapeHtml(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ===== Extract variables like {{name}} =====
+function extractVars(text) {
+  const vars = new Set();
+  const re = /\{\{([^}]+)\}\}/g;
+  let m;
+  while ((m = re.exec(text)) !== null) vars.add(m[1].trim());
+  return vars;
+}
+
+function extractTemplateVars(text) {
+  const vars = new Set([...extractVars(text)]);
+  const single = /\{([A-Za-z_][A-Za-z0-9_.-]*)\}/g;
+  let m;
+  while ((m = single.exec(text)) !== null) vars.add(m[1].trim());
+  return [...vars];
+}
+
+function extractHeadings(text) {
+  const headings = [];
+  text.split('\n').forEach(line => {
+    const m = line.match(/^\s{0,3}#{1,6}\s+(.+?)\s*$/);
+    if (m) headings.push(m[1].replace(/#+$/g, '').trim());
+  });
+  return [...new Set(headings)];
+}
+
+function inferResourceEvents(oldText, newText) {
+  const oldPaths = extractResourcePaths(oldText);
+  const newPaths = extractResourcePaths(newText);
+  const events = [];
+  const labels = { scripts: 'SCRIPT', assets: 'ASSET', references: 'REFERENCE' };
+  newPaths.forEach(path => {
+    const group = path.split('/')[0];
+    if (!labels[group]) return;
+    const action = oldPaths.has(path) ? 'changed' : 'added';
+    events.push({ kind: labels[group], action, path });
+  });
+  oldPaths.forEach(path => {
+    if (!newPaths.has(path)) {
+      const group = path.split('/')[0];
+      if (labels[group]) events.push({ kind: labels[group], action: 'removed', path });
+    }
+  });
+  return events;
+}
+
+function extractResourcePaths(text) {
+  const paths = new Set();
+  const re = /\b(scripts|assets|references)\/[^\s`"'<>),;]+/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    paths.add(m[0].replace(/[.。]+$/g, ''));
+  }
+  return paths;
+}
+
+// ===== Extract JSON from prompt output instructions =====
+function extractOutputFields(text) {
+  const fields = new Set();
+  const lines = text.split('\n');
+  let inOutput = false;
+  lines.forEach((line, index) => {
+    const normalized = line.trim();
+    if (isOutputSectionStart(normalized)) inOutput = true;
+    if (inOutput && index > 0 && /^#{1,6}\s+/.test(normalized) && !isOutputSectionStart(normalized)) inOutput = false;
+
+    if (inOutput) {
+      // Match quoted field names
+      const quoted = line.match(/"(\w+)":/g);
+      if (quoted) quoted.forEach(q => fields.add(q.replace(/"/g, '')));
+      // Match key: type patterns
+      const colon = line.match(/^\s*"?(\w+)"?\s*:/);
+      if (colon && colon[1].length > 2) fields.add(colon[1]);
+      // Match natural-language bullets under Output Expectations.
+      const bullet = line.match(/^\s*[-*]\s+(.+)/);
+      if (bullet) inferFieldsFromBullet(bullet[1]).forEach(field => fields.add(field));
+    }
+    if (inOutput && /不要|禁止|only/i.test(line) && fields.size > 0) inOutput = false;
+  });
+  // Also look for structured output sections
+  const jsonBlocks = text.match(/\{[^}]{20,}\}/g) || [];
+  jsonBlocks.forEach(block => {
+    const keys = block.match(/"(\w+)":/g) || [];
+    keys.forEach(k => fields.add(k.replace(/"/g, '')));
+  });
+  return [...fields];
+}
+
+function isOutputSectionStart(line) {
+  return (
+    /输出|返回|response/i.test(line) ||
+    /output\s+(expectations?|format|schema|fields?)/i.test(line) ||
+    /final\s+response/i.test(line) ||
+    /include:/i.test(line)
+  );
+}
+
+function inferFieldsFromBullet(text) {
+  const lower = text.toLowerCase();
+  const fields = [];
+  if (/index\.html|html\s+path|generated\/updated/.test(lower)) fields.push('index_html_path');
+  if (/major\s+modules?|modules?\s+included|section/.test(lower)) fields.push('modules');
+  if (/figures?|tables?|assets?/.test(lower)) fields.push('assets');
+  if (/keywords?|tags?|discovery/.test(lower)) fields.push('keywords');
+  if (/quality\s+checks?|link|html\s+sanity|responsive|asset\s+independence|visual\s+consistency/.test(lower)) fields.push('quality_checks');
+  if (/validation|validate/.test(lower)) fields.push('validation');
+  if (/risks?|remaining\s+risks?/.test(lower)) fields.push('risks');
+  if (fields.length > 0) return fields;
+  const fallback = text
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/[^a-zA-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .toLowerCase();
+  return fallback.length > 2 ? [fallback] : [];
+}
+
+function fieldAppearsRequired(field, text) {
+  const lines = text.split('\n');
+  const fieldWords = field.split('_').filter(Boolean);
+  return lines.some(line => {
+    const lower = line.toLowerCase();
+    const mentionsField = fieldWords.every(word => lower.includes(word)) || lower.includes(field.toLowerCase());
+    return mentionsField && /required|must|mandatory|必须|必填|需要/.test(lower);
+  });
+}
+
+// ===== Extract input fields from prompt (what user should provide) =====
+function extractInputFields(text) {
+  const fields = new Set();
+  const lines = text.split('\n');
+  lines.forEach(line => {
+    // Match patterns like "title:", "author:", "content:", "text:"
+    const m = line.match(/^\s*"?(\w+)":\s*"?[^"]/);
+    if (m && m[1].length > 2 && !/(if|else|for|while|function)/i.test(m[1])) {
+      fields.add(m[1]);
+    }
+    // Match input/input format sections
+    if (/输入|input|用户会|提供以下/i.test(line)) {
+      lines.slice(lines.indexOf(line), lines.indexOf(line) + 10).forEach(l => {
+        const kv = l.match(/^\s*"?(\w+)":/);
+        if (kv) fields.add(kv[1]);
+      });
+    }
+  });
+  return [...fields];
+}
+
+// ===== LCS diff =====
+function computeDiff(oldLines, newLines) {
+  const n = oldLines.length, m = newLines.length;
+  const dp = Array.from({length: n+1}, () => new Array(m+1).fill(0));
+  for (let i = 1; i <= n; i++)
+    for (let j = 1; j <= m; j++)
+      dp[i][j] = oldLines[i-1] === newLines[j-1] ? dp[i-1][j-1] + 1 : Math.max(dp[i-1][j], dp[i][j-1]);
+  const result = [];
+  let i = n, j = m;
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && oldLines[i-1] === newLines[j-1]) {
+      result.unshift({ type: 'same', line: oldLines[i-1] }); i--; j--;
+    } else if (j > 0 && (i === 0 || dp[i][j-1] >= dp[i-1][j])) {
+      result.unshift({ type: 'add', line: newLines[j-1] }); j--;
+    } else {
+      result.unshift({ type: 'remove', line: oldLines[i-1] }); i--;
+    }
+  }
+  return result;
+}
+
+// ===== Analyze changes =====
+function analyze() {
+  const oldText = document.getElementById('old-prompt').value.trim();
+  const newText = document.getElementById('new-prompt').value.trim();
+
+  if (!oldText && !newText) {
+    document.getElementById('result-area').classList.remove('visible');
+    return;
+  }
+
+  const oldVars = extractVars(oldText);
+  const newVars = extractVars(newText);
+  const newVarsAdded = [...newVars].filter(v => !oldVars.has(v));
+  const newVarsRemoved = [...oldVars].filter(v => !newVars.has(v));
+
+  const oldOutput = extractOutputFields(oldText);
+  const newOutput = extractOutputFields(newText);
+  const outputAdded = newOutput.filter(f => !oldOutput.includes(f));
+  const outputRemoved = oldOutput.filter(f => !newOutput.includes(f));
+
+  const oldLines = oldText.split('\n');
+  const newLines = newText.split('\n');
+  const diff = computeDiff(oldLines, newLines);
+  const addCount = diff.filter(d => d.type === 'add').length;
+  const removeCount = diff.filter(d => d.type === 'remove').length;
+  const headings = extractHeadings(newText);
+  const templateVars = extractTemplateVars(newText);
+  const resourceEvents = inferResourceEvents(oldText, newText);
+
+  // Determine risk
+  const hasVarChange = newVarsAdded.length > 0 || newVarsRemoved.length > 0;
+  const hasOutputChange = outputAdded.length > 0 || outputRemoved.length > 0;
+  const hasScriptChange = resourceEvents.some(event => event.kind === 'SCRIPT');
+  const outputAddedRequired = outputAdded.some(field => fieldAppearsRequired(field, newText));
+  const hasBreakingPhrase = /不要|禁止|必须|严禁|never|always/i.test(newText) &&
+    /不要|禁止|必须|严禁|never|always/i.test(oldText) === false;
+
+  const isBreaking = outputRemoved.length > 0 || outputAddedRequired;
+  const needsReview = hasOutputChange || hasVarChange || hasScriptChange || addCount > 3;
+  const risk = isBreaking ? 'breaking' : (needsReview ? 'review' : 'safe');
+  const bump = isBreaking ? 'major' : (needsReview ? 'minor' : 'patch');
+
+  // ===== Render Risk Banner =====
+  const banner = document.getElementById('risk-banner');
+  banner.innerHTML = `
+    <div class="risk-card">
+      <div class="label">变更行数</div>
+      <div class="value"><span class="chip-add">+${addCount}</span> <span class="chip-remove">-${removeCount}</span></div>
+    </div>
+    <div class="risk-card">
+      <div class="label">输入变量</div>
+      <div class="value ${hasVarChange ? 'warn' : 'pass'}">${newVars.size}</div>
+      <div class="sub">${newVarsAdded.length > 0 ? '+' + newVarsAdded.length + ' 新增' : ''} ${newVarsRemoved.length > 0 ? '-' + newVarsRemoved.length + ' 移除' : '无变化'}</div>
+    </div>
+    <div class="risk-card">
+      <div class="label">输出字段</div>
+      <div class="value ${hasOutputChange ? 'warn' : 'pass'}">${newOutput.length}</div>
+      <div class="sub">${outputAdded.length > 0 ? '+' + outputAdded.length + ' 新增' : ''}</div>
+    </div>
+    <div class="risk-card">
+      <div class="label">风险等级</div>
+      <div class="value ${risk === 'breaking' ? 'fail' : risk === 'review' ? 'warn' : 'pass'}">${risk === 'breaking' ? 'Breaking' : risk === 'review' ? '需审查' : '安全'}</div>
+      <div class="sub">建议 ${bump} bump</div>
+    </div>
+  `;
+
+  // ===== Risk Badge =====
+  const badge = document.getElementById('risk-badge');
+  if (risk === 'breaking') {
+    badge.className = 'badge badge-danger';
+    badge.textContent = '⚠ Breaking Change';
+  } else if (risk === 'review') {
+    badge.className = 'badge badge-warn';
+    badge.textContent = '⚠ 需审查';
+  } else {
+    badge.className = 'badge badge-success';
+    badge.textContent = '✓ 安全变更';
+  }
+
+  // ===== Change Summary =====
+  const changesList = document.getElementById('changes-list');
+  const changes = [];
+
+  if (outputAdded.length > 0) {
+    const cls = outputAddedRequired ? 'breaking' : 'added';
+    const suffix = outputAddedRequired ? '新增 required 字段，可能导致下游调用失败（Breaking Change）' : '新增 optional 字段，需要审查下游是否要消费该字段';
+    changes.push({ cls, text: `<strong>输出字段新增</strong>：${outputAdded.map(f => `"${f}"`).join('、')} — ${suffix}` });
+  }
+  if (outputRemoved.length > 0) {
+    changes.push({ cls: 'breaking', text: `<strong>输出字段移除</strong>：${outputRemoved.map(f => `"${f}"`).join('、')} — 下游依赖将报错（Breaking Change）` });
+  }
+  if (newVarsAdded.length > 0) {
+    changes.push({ cls: 'added', text: `<strong>输入变量新增</strong>：${newVarsAdded.map(v => `{{${v}}}`).join('、')} — 调用方需适配新参数` });
+  }
+  if (newVarsRemoved.length > 0) {
+    changes.push({ cls: 'removed', text: `<strong>输入变量移除</strong>：${newVarsRemoved.map(v => `{{${v}}}`).join('、')} — 历史调用可能出错` });
+  }
+  if (hasBreakingPhrase) {
+    changes.push({ cls: 'info', text: `<strong>措辞变化</strong>：检测到新增限制性措辞（"不要"、"禁止"、"必须"等），需确认是否影响已有调用方` });
+  }
+  if (addCount > 0 && !hasOutputChange && !hasVarChange) {
+    changes.push({ cls: 'info', text: `<strong>描述/指令调整</strong>：${addCount} 行新增，无 Schema 变更，调用方无需适配` });
+  }
+  if (changes.length === 0) {
+    changes.push({ cls: 'info', text: '未检测到实质性变更' });
+  }
+
+  changesList.innerHTML = changes.map(c =>
+    `<div class="change-item ${c.cls}">${c.text}</div>`
+  ).join('');
+
+  // ===== Semantic Events =====
+  const semanticEvents = document.getElementById('semantic-events');
+  const eventCards = [
+    {
+      kind: 'PROMPT',
+      action: 'changed',
+      path: 'skill',
+      meta: `+${addCount} -${removeCount}${headings.length ? '；headings: ' + headings.slice(0, 3).join(', ') : ''}${templateVars.length ? '；vars: ' + templateVars.slice(0, 5).join(', ') : ''}`
+    },
+    ...resourceEvents.map(event => ({
+      ...event,
+      meta: event.kind === 'SCRIPT' ? 'review-required；建议用 runner 或专项测试覆盖' : 'review-required'
+    }))
+  ];
+  semanticEvents.innerHTML = eventCards.map(event => {
+    const cls = event.kind.toLowerCase();
+    return `
+      <div class="event-card ${cls}">
+        <strong>${event.kind} ${event.action} ${escapeHtml(event.path)}</strong>
+        <span>${escapeHtml(event.meta)}</span>
+      </div>
+    `;
+  }).join('');
+
+  // ===== Diff View =====
+  const diffSection = document.getElementById('diff-section');
+  const diffStats = document.getElementById('diff-stats');
+  const diffView = document.getElementById('diff-view');
+
+  if (diff.some(d => d.type !== 'same')) {
+    diffSection.style.display = 'block';
+    diffStats.innerHTML = `
+      <span class="stat-chip chip-add">+${addCount} 行</span>
+      <span class="stat-chip chip-remove">-${removeCount} 行</span>
+      ${newVarsAdded.length > 0 ? `<span class="stat-chip" style="background:#e0e7ff;color:var(--primary)">变量 ${newVarsAdded.map(v => '+{{' + v + '}}').join(' ')}</span>` : ''}
+      ${newVarsRemoved.length > 0 ? `<span class="stat-chip" style="background:#fee2e2;color:var(--danger)">变量 ${newVarsRemoved.map(v => '-{{' + v + '}}').join(' ')}</span>` : ''}
+    `;
+
+    diffView.innerHTML = diff.map(d => {
+      let cls = '', prefix = ' ';
+      if (d.type === 'add') { cls = 'diff-add'; prefix = '+'; }
+      else if (d.type === 'remove') { cls = 'diff-remove'; prefix = '-'; }
+      const line = escapeHtml(d.line);
+      const highlighted = line.replace(/\{\{([^}]+)\}\}/g, '<span class="diff-var">{{$1}}</span>');
+      return `<div class="diff-line ${cls}">${prefix} ${highlighted}</div>`;
+    }).join('');
+  } else {
+    diffSection.style.display = 'none';
+  }
+
+  // ===== Input Schema =====
+  const allInputVars = [...new Set([...extractInputFields(oldText + newText), ...newVars])];
+  const inputSchema = document.getElementById('input-schema');
+  if (allInputVars.length > 0) {
+    inputSchema.innerHTML = allInputVars.map(f => `
+      <div class="field-item">
+        <div class="field-name">${escapeHtml(f)} <span class="opt">optional</span></div>
+        <div class="field-meta">type: string</div>
+      </div>
+    `).join('');
+  } else {
+    inputSchema.innerHTML = '<div style="color:var(--muted);font-size:13px">未检测到明确的输入字段</div>';
+  }
+
+  // ===== Output Schema =====
+  const outputTag = document.getElementById('output-tag');
+  const outputSchema = document.getElementById('output-schema');
+  if (newOutput.length > 0) {
+    outputTag.className = 'tag ' + (outputAdded.length > 0 ? 'tag-new' : 'tag-same');
+    outputTag.textContent = outputAdded.length > 0 ? '有变更' : '无变更';
+    outputSchema.innerHTML = newOutput.map(f => {
+      const isNew = outputAdded.includes(f);
+      const note = isNew ? '<div class="field-note">&#9888; 新增 optional 字段，需审查下游是否消费</div>' : '';
+      return `
+        <div class="field-item">
+          <div class="field-name">${escapeHtml(f)} ${isNew ? '<span class="req">NEW</span>' : '<span class="opt">same</span>'}</div>
+          <div class="field-meta">type: any</div>
+          ${note}
+        </div>
+      `;
+    }).join('');
+  } else {
+    outputTag.className = 'tag tag-same';
+    outputTag.textContent = '未检测';
+    outputSchema.innerHTML = '<div style="color:var(--muted);font-size:13px">未检测到明确的输出字段格式</div>';
+  }
+
+  // ===== Skill.yaml =====
+  const name = 'inferred-skill';
+  const bumpNum = isBreaking ? '2.0.0' : (hasVarChange || hasOutputChange ? '0.2.0' : '0.1.1');
+  const yaml = `name: ${name}
+version: "${bumpNum}"
+description: "Auto-generated from prompt diff"
+
+prompts:
+  system: prompts/system.md
+
+schemas:
+  input: schemas/input.schema.json
+  output: schemas/output.schema.json
+
+runtime:
+  model: gpt-4o
+  temperature: 0.2
+
+tests:
+  golden: tests/golden.jsonl
+
+tags:
+  - auto-generated`;
+
+  document.getElementById('yaml-output').textContent = yaml;
+
+  document.getElementById('result-area').classList.add('visible');
+}
+
+function clearAll() {
+  document.getElementById('old-prompt').value = '';
+  document.getElementById('new-prompt').value = '';
+  document.getElementById('result-area').classList.remove('visible');
+}
+
+function copyYaml() {
+  const text = document.getElementById('yaml-output').textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.getElementById('copy-btn');
+    btn.textContent = '&#10004; 已复制';
+    btn.classList.add('copied');
+    setTimeout(() => {
+      btn.textContent = '&#128203; 复制';
+      btn.classList.remove('copied');
+    }, 2000);
+  });
+}
+
+// Auto-analyze on paste
+document.getElementById('old-prompt').addEventListener('input', () => { if (document.getElementById('new-prompt').value.trim()) analyze(); });
+document.getElementById('new-prompt').addEventListener('input', () => { if (document.getElementById('old-prompt').value.trim()) analyze(); });
+</script>
+</body>
+</html>

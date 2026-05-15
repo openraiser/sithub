@@ -15,8 +15,17 @@ def build_report(
     compare: SkillPackage | None = None,
     package_spec: str | None = None,
     diff_command: str | None = None,
+    package_source: str | None = None,
+    compare_source: str | None = None,
 ) -> str:
-    data = build_report_payload(package, compare=compare, package_spec=package_spec, diff_command=diff_command)
+    data = build_report_payload(
+        package,
+        compare=compare,
+        package_spec=package_spec,
+        diff_command=diff_command,
+        package_source=package_source,
+        compare_source=compare_source,
+    )
     return render_report_markdown(data)
 
 
@@ -26,6 +35,8 @@ def build_report_payload(
     compare: SkillPackage | None = None,
     package_spec: str | None = None,
     diff_command: str | None = None,
+    package_source: str | None = None,
+    compare_source: str | None = None,
 ) -> dict[str, Any]:
     validation = validate_package(package)
     test_result = run_golden_schema_tests(package) if validation.ok else None
@@ -35,10 +46,12 @@ def build_report_payload(
     payload = {
         "schema_version": "sit.report.v1",
         "date": date.today().isoformat(),
-        "package": _package_ref(package),
+        "package": _package_ref(package, source=package_source),
         "validation": validation.to_dict(),
         "golden_tests": _test_result_dict(test_result),
-        "diff": diff.to_dict(compare, package) if diff is not None and compare is not None else None,
+        "diff": diff.to_dict(compare, package, old_source=compare_source, new_source=package_source)
+        if diff is not None and compare is not None
+        else None,
         "reproducibility": {
             "validate": validate_command,
             "test": test_command,
@@ -62,9 +75,11 @@ def render_report_markdown(data: dict[str, Any]) -> str:
         "",
         f"- Name: `{package['name']}`",
         f"- Version: `{package['version']}`",
-        f"- Root: `{package['root']}`",
-        f"- Manifest: `{package['manifest']}`",
     ]
+    if package.get("source"):
+        lines.append(f"- Source: `{package['source']}`")
+    else:
+        lines.extend([f"- Root: `{package['root']}`", f"- Manifest: `{package['manifest']}`"])
 
     if package.get("description"):
         lines.append(f"- Description: {package['description']}")
@@ -77,14 +92,14 @@ def render_report_markdown(data: dict[str, Any]) -> str:
             f"- Result: {validation['status']}",
         ]
     )
-    lines.extend(f"- `{message}`" for message in validation["messages"])
+    lines.extend(f"- `{_display_text(message, data)}`" for message in validation["messages"])
 
     lines.extend(["", "## Golden Tests", ""])
     if test_result["status"] == "skipped":
         lines.append("- Skipped because validation failed.")
     else:
         lines.append(f"- Result: {test_result['status']}")
-        lines.extend(f"- `{message}`" for message in test_result["messages"])
+        lines.extend(f"- `{_display_text(message, data)}`" for message in test_result["messages"])
 
     if data["diff"] is not None:
         diff = data["diff"]
@@ -97,7 +112,7 @@ def render_report_markdown(data: dict[str, Any]) -> str:
                 f"- Current: `{diff['new']['name']}@{diff['new']['version']}`",
             ]
         )
-        lines.extend(f"- `{message}`" for message in diff["messages"])
+        lines.extend(f"- `{_display_text(message, data)}`" for message in diff["messages"])
 
     lines.extend(
         [
@@ -173,8 +188,8 @@ def render_report_html(data: dict[str, Any]) -> str:
         "</div>",
         "</section>",
         '<section class="columns">',
-        _message_section("Validation", validation["messages"], "validation"),
-        _message_section("Golden Tests", tests["messages"], "tests"),
+        _message_section("Validation", _display_messages(validation["messages"], data), "validation"),
+        _message_section("Golden Tests", _display_messages(tests["messages"], data), "tests"),
         "</section>",
     ]
 
@@ -199,7 +214,7 @@ def render_report_html(data: dict[str, Any]) -> str:
                 '<button type="button" class="toggle-long" data-toggle-long>Expand long diff</button>',
                 "</div>",
                 '<div class="timeline">',
-                *_diff_items(diff["events"]),
+                *_diff_items(diff["events"], data),
                 "</div>",
                 "</section>",
             ]
@@ -265,14 +280,17 @@ def _parse_summary(messages: list[str]) -> tuple[int | None, int | None, str | N
     return None, None, None
 
 
-def _package_ref(package: SkillPackage) -> dict[str, str | None]:
-    return {
+def _package_ref(package: SkillPackage, *, source: str | None = None) -> dict[str, str | None]:
+    data = {
         "name": package.name or "<unknown>",
         "version": package.version or "<unknown>",
         "description": package.description,
         "root": str(package.root),
         "manifest": str(package.manifest_path),
     }
+    if source is not None:
+        data["source"] = source
+    return data
 
 
 def _metric(title: str, value: str, ok: bool | None) -> str:
@@ -297,12 +315,12 @@ def _message_section(title: str, messages: list[str], section_class: str) -> str
     return "\n".join(lines)
 
 
-def _diff_items(events: list[dict[str, Any]]) -> list[str]:
+def _diff_items(events: list[dict[str, Any]], data: dict[str, Any]) -> list[str]:
     items: list[str] = []
     for index, event in enumerate(events, start=1):
         severity = _token_class(str(event.get("severity", "info")))
         category = str(event.get("category", "event"))
-        message = str(event.get("message", ""))
+        message = _display_text(str(event.get("message", "")), data)
         schema_path = _schema_path_from_message(message)
         long_class = " long" if len(message) > 120 else ""
         items.append(
@@ -386,6 +404,33 @@ def _schema_path_from_message(message: str) -> str | None:
 def _repro_commands(data: dict[str, Any]) -> list[str]:
     repro = data.get("reproducibility", {})
     return [command for command in (repro.get("validate"), repro.get("test"), repro.get("diff")) if command]
+
+
+def _display_messages(messages: list[str], data: dict[str, Any]) -> list[str]:
+    return [_display_text(message, data) for message in messages]
+
+
+def _display_text(text: str, data: dict[str, Any]) -> str:
+    for root, source in _source_replacements(data):
+        text = text.replace(root, source)
+    return text
+
+
+def _source_replacements(data: dict[str, Any]) -> list[tuple[str, str]]:
+    refs = [data.get("package")]
+    diff = data.get("diff")
+    if isinstance(diff, dict):
+        refs.extend([diff.get("old"), diff.get("new")])
+
+    replacements: list[tuple[str, str]] = []
+    for ref in refs:
+        if not isinstance(ref, dict):
+            continue
+        root = ref.get("root")
+        source = ref.get("source")
+        if isinstance(root, str) and isinstance(source, str):
+            replacements.append((root.rstrip("/"), source.rstrip("/")))
+    return sorted(set(replacements), key=lambda item: len(item[0]), reverse=True)
 
 
 def _percent(passed: int | None, total: int | None) -> int:

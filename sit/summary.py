@@ -32,6 +32,9 @@ def build_pr_summary(
         "",
     ]
     lines.extend(f"- `{message}`" for message in diff["messages"])
+    if data["prompt_reference_summary"]:
+        lines.extend(["", "### Prompt/Reference Text Summary", ""])
+        lines.extend(f"- `{summary}`" for summary in data["prompt_reference_summary"])
     lines.extend(
         [
             "",
@@ -60,6 +63,9 @@ def build_pr_summary_text(old: SkillPackage, new: SkillPackage) -> str:
         "Semantic Diff:",
     ]
     lines.extend(data["diff"]["messages"])
+    if data["prompt_reference_summary"]:
+        lines.extend(["", "Prompt/Reference Text Summary:"])
+        lines.extend(data["prompt_reference_summary"])
     return "\n".join(lines) + "\n"
 
 
@@ -107,6 +113,7 @@ def build_pr_summary_payload(
         "risk": diff.risk,
         "suggested_bump": diff.suggested_bump,
         "diff": diff.to_dict(old, new, old_source=baseline_source, new_source=current_source),
+        "prompt_reference_summary": [text_diff.summary for text_diff in diff.text_diffs],
     }
 
 
