@@ -39,6 +39,13 @@ sit init my-skill
 cd my-skill
 ```
 
+Standardize an existing prompt or `SKILL.md` project:
+
+```bash
+cd /path/to/existing-prompt-project
+sit standardize .
+```
+
 Validate and test:
 
 ```bash
@@ -117,7 +124,8 @@ commands:
 | Command | Purpose |
 |---|---|
 | `sit init <name>` | Create a new Skill package. |
-| `sit onboard .` | Add SitHub files to an existing `SKILL.md` project. |
+| `sit standardize .` | Convert an existing prompt or `SKILL.md` project into a standard Skill package. |
+| `sit onboard .` | Conservatively add SitHub files to an existing `SKILL.md` project. |
 | `sit doctor .` | Check onboarding readiness. |
 | `sit info . --format json` | Inspect package, Git, validation, tests, and reports. |
 | `sit validate .` | Validate manifest paths, schemas, and golden cases. |
@@ -155,7 +163,7 @@ Suggested version bump: minor
 
 ## CI
 
-`sit init` and `sit onboard` create a GitHub Actions workflow that can run:
+`sit init`, `sit standardize`, and `sit onboard` create a GitHub Actions workflow that can run:
 
 ```bash
 sit validate "$SIT_PACKAGE_DIR"

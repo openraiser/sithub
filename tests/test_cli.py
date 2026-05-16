@@ -665,6 +665,73 @@ dependencies:
             self.assertEqual(stdout, "")
             self.assertIn("Missing SKILL.md", stderr)
 
+    def test_standardize_prompt_only_project(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "prompt-only"
+            root.mkdir()
+            (root / "prompt.md").write_text("# Classifier\n\nClassify the input text.\n", encoding="utf-8")
+
+            code, output = _run_cli(["standardize", str(root)])
+            rerun_code, rerun_output = _run_cli(["standardize", str(root)])
+            validate_code, validate_output = _run_cli(["validate", str(root)])
+            test_code, test_output = _run_cli(["test", str(root)])
+
+            self.assertEqual(code, 0)
+            self.assertIn("SitHub Standardize", output)
+            self.assertEqual(rerun_code, 0)
+            self.assertNotIn("prompts/prompt_2.md", rerun_output)
+            self.assertTrue((root / "skill.yaml").exists())
+            self.assertTrue((root / "prompts" / "prompt.md").exists())
+            self.assertFalse((root / "prompts" / "prompt_2.md").exists())
+            self.assertTrue((root / "schemas" / "input.schema.json").exists())
+            self.assertTrue((root / "schemas" / "output.schema.json").exists())
+            self.assertTrue((root / "tests" / "golden.jsonl").exists())
+            self.assertTrue((root / "reports" / "sithub-standardization.md").exists())
+            manifest = (root / "skill.yaml").read_text(encoding="utf-8")
+            self.assertIn("name: prompt-only", manifest)
+            self.assertIn("prompt: prompts/prompt.md", manifest)
+            self.assertEqual(validate_code, 0)
+            self.assertIn("OK  schema.output JSON schema valid", validate_output)
+            self.assertEqual(test_code, 0)
+            self.assertIn("SUMMARY 1/1 golden cases passed", test_output)
+
+            json_root = Path(tmp) / "prompt-json"
+            json_root.mkdir()
+            (json_root / "prompt.txt").write_text("Return a compact JSON summary.\n", encoding="utf-8")
+            json_code, json_output = _run_cli(["standardize", str(json_root), "--format", "json"])
+            self.assertEqual(json_code, 0)
+            json_payload = json.loads(json_output)
+            self.assertEqual(json_payload["schema_version"], "sit.standardize.v1")
+            self.assertEqual(json_payload["root"], str(json_root))
+
+            no_git_root = Path(tmp) / "prompt-no-git"
+            no_git_root.mkdir()
+            (no_git_root / "prompt.md").write_text("Return JSON.\n", encoding="utf-8")
+            no_git_code, no_git_output = _run_cli(["standardize", str(no_git_root), "--no-git"])
+            self.assertEqual(no_git_code, 0)
+            self.assertIn("Doctor status: fail", no_git_output)
+            self.assertTrue((no_git_root / "skill.yaml").exists())
+
+    def test_standardize_skill_md_copies_prompt_into_prompts_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "existing-skill"
+            root.mkdir()
+            (root / "SKILL.md").write_text("# Existing Skill\n\nFollow the existing instructions.\n", encoding="utf-8")
+
+            code, output = _run_cli(["standardize", str(root)])
+            json_code, json_output = _run_cli(["standardize", str(root), "--format", "json"])
+
+            self.assertEqual(code, 0)
+            self.assertIn("prompts/skill.md", output)
+            self.assertFalse((root / "prompts" / "skill_2.md").exists())
+            self.assertTrue((root / "prompts" / "skill.md").exists())
+            manifest = (root / "skill.yaml").read_text(encoding="utf-8")
+            self.assertIn("skill: prompts/skill.md", manifest)
+            self.assertEqual(json_code, 0)
+            payload = json.loads(json_output)
+            self.assertEqual(payload["schema_version"], "sit.standardize.v1")
+            self.assertEqual(payload["root"], str(root))
+
     def test_golden_match_modes_pass_and_fail(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             package = _write_package(Path(tmp) / "pkg", version="0.1.0")

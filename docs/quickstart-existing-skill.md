@@ -27,6 +27,27 @@ git push -u origin main
 
 ## 2. Run SitHub Onboarding
 
+If the project is a loose prompt project, or you want a standard package layout with prompts copied under `prompts/`, run:
+
+```bash
+cd /path/to/existing-skill
+sit standardize
+```
+
+`sit standardize` creates or fills:
+
+- `skill.yaml`
+- `prompts/`
+- `schemas/input.schema.json`
+- `schemas/output.schema.json`
+- `tests/golden.jsonl`
+- `.github/workflows/sit-ci.yaml`
+- `.github/pull_request_template.md`
+- `reports/sithub-standardization.md`
+- `reports/sithub-standardization.html`
+
+The generated schemas and golden case are draft contracts. They let `sit validate` and `sit test` run immediately, but they should be refined to match the Skill's real input/output behavior.
+
 From the existing Skill directory:
 
 ```bash
@@ -40,7 +61,7 @@ For a GitHub-backed project, pass the remote when the repository does not alread
 sit onboard --remote https://github.com/OWNER/REPO.git
 ```
 
-`sit onboard` is conservative by default:
+`sit onboard` is conservative by default and is best for existing `SKILL.md` projects where you do not want to reorganize prompts:
 
 - it requires `SKILL.md`
 - it creates missing SitHub directories and files
@@ -219,5 +240,5 @@ Open a GitHub PR and confirm:
 
 - By default, `sit test` validates golden expected/actual records against schema and match mode. To run the Skill itself, add a project runner and use `sit test --run`.
 - Installing from GitHub source requires `OpenRaiser/SitHub` to be reachable from CI.
-- `sit onboard` does not infer a domain-perfect schema yet. Treat the generated schemas and golden case as a safe starting point, then refine them for the Skill's real contract.
+- `sit standardize` and `sit onboard` do not infer a domain-perfect schema yet. Treat the generated schemas and golden case as a safe starting point, then refine them for the Skill's real contract.
 - Behavior regression requires a project runner. Add `commands.run_case` to `skill.yaml`, then use `sit test --run`.

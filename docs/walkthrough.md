@@ -22,7 +22,7 @@ Current closure:
 
 - PR #2 was merged: `https://github.com/xxllovemkm/paper-webpage-builder/pull/2`
 - `experiment/sithub-pr-loop` has been pushed through `a4d0f92`.
-- SitHub `main` includes resource-aware diff and release workflow hardening through `0.18.1`.
+- SitHub `main` includes resource-aware diff, release workflow hardening, and standardization scaffolding through `0.19.0`.
 
 ## 1. Onboard an Existing Skill
 

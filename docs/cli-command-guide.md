@@ -11,6 +11,7 @@ sit 负责理解 Skill：结构是否完整、schema 有没有破坏、golden te
 
 | 命令 | 含义 | 例子 |
 |---|---|---|
+| `sit standardize` | 把已有 prompt / `SKILL.md` 项目整理成标准 Skill Package | `sit standardize .` |
 | `sit onboard` | 把已有 `SKILL.md` 项目接入 SitHub | `sit onboard . --remote https://github.com/OWNER/REPO.git` |
 | `sit init` | 从零创建一个标准 Skill Package | `sit init paper-reader --path ./paper-reader` |
 | `sit info` | 查看一个 Skill 项目的完整状态快照 | `sit info` |
@@ -21,6 +22,16 @@ sit 负责理解 Skill：结构是否完整、schema 有没有破坏、golden te
 
 ```bash
 cd paper-webpage-builder
+sit standardize
+sit doctor
+sit info
+```
+
+`standardize` 会补齐 `skill.yaml`、`prompts/`、`schemas/input.schema.json`、`schemas/output.schema.json`、`tests/golden.jsonl`、GitHub Actions 和标准化报告。生成的 schema 与 golden case 是安全草稿，下一步应该按 Skill 的真实输入输出合同继续收紧。
+
+如果项目已经是明确的 `SKILL.md` 项目，并且你希望尽量不移动 prompt 文件，可以用保守接入：
+
+```bash
 sit onboard
 sit doctor
 sit info
@@ -226,11 +237,11 @@ cd paper-webpage-builder
 第一次接入 SitHub：
 
 ```bash
-sit onboard --remote https://github.com/OWNER/paper-webpage-builder.git
+sit standardize --remote https://github.com/OWNER/paper-webpage-builder.git
 sit doctor
 sit validate
 sit test
-sit report --format html --output reports/sithub-onboarding.html
+sit report --format html --output reports/sithub-standardization.html
 ```
 
 开始改功能：
@@ -258,7 +269,7 @@ sit push
 ## 8. 一句话记忆
 
 ```text
-sit onboard：接入项目
+sit standardize/onboard：标准化或接入项目
 sit doctor/info：看状态
 sit validate/test：确认结构和 golden case 没坏
 sit diff/report：看这次改动的语义影响

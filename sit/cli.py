@@ -15,7 +15,7 @@ from .gate import check_version_gate_against_head, format_gate_failure
 from .git import run_git
 from .init import init_package
 from .info import build_info_payload, render_info_text
-from .onboard import onboard_existing_skill, render_onboard_text
+from .onboard import onboard_existing_skill, render_onboard_text, render_standardize_text, standardize_skill_package
 from .package import load_package
 from .release import release_package
 from .ref import load_compare_package, load_package_pair, parse_git_range
@@ -103,6 +103,22 @@ def cmd_onboard(args: argparse.Namespace) -> int:
         print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
     else:
         print(render_onboard_text(result), end="")
+    return 0 if result.ok else 1
+
+
+def cmd_standardize(args: argparse.Namespace) -> int:
+    result = standardize_skill_package(
+        args.path,
+        name=args.name,
+        version=args.version,
+        remote=args.remote,
+        no_git=args.no_git,
+        force=args.force,
+    )
+    if args.format == "json":
+        print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+    else:
+        print(render_standardize_text(result), end="")
     return 0 if result.ok else 1
 
 
@@ -357,6 +373,16 @@ def _build_parser() -> argparse.ArgumentParser:
     onboard.add_argument("--force", action="store_true", help="Overwrite generated SitHub onboarding files")
     onboard.add_argument("--format", choices=["text", "json"], default="text", help="Output format")
     onboard.set_defaults(func=cmd_onboard)
+
+    standardize = subparsers.add_parser("standardize", help="Standardize an existing prompt or SKILL.md project into a Skill Package")
+    standardize.add_argument("path", nargs="?", default=".", help="Existing Skill or prompt directory")
+    standardize.add_argument("--name", help="Skill Package name; defaults to the directory name")
+    standardize.add_argument("--version", default="0.1.0", help="Initial Skill Package version")
+    standardize.add_argument("--remote", help="Optional GitHub remote URL to add as origin when missing")
+    standardize.add_argument("--no-git", action="store_true", help="Do not initialize a Git repository")
+    standardize.add_argument("--force", action="store_true", help="Overwrite generated SitHub standardization files")
+    standardize.add_argument("--format", choices=["text", "json"], default="text", help="Output format")
+    standardize.set_defaults(func=cmd_standardize)
 
     validate = subparsers.add_parser("validate", help="Validate manifest paths, schemas, and golden JSONL")
     validate.add_argument("package", nargs="?", default=".", help="Skill Package directory or skill.yaml")

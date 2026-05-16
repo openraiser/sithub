@@ -50,12 +50,13 @@ The completed local loop now includes:
 - PyInstaller binary build dry-run via `scripts/build_binary.py`
 - VS Code extension minimum loop that calls existing `sit` JSON/text outputs for Info, Validate, Test, Diff, and status refresh
 - VS Code extension build/package path with npm lockfile, TypeScript compile, and VSIX packaging check
+- `sit standardize` for converting existing prompt or `SKILL.md` projects into standard Skill Packages with prompts, schemas, golden tests, CI, and reports
 
 The next CLI milestone should focus on:
 
 - running external pilots with `docs/pilots/external-trial-kit.md` before more large CLI feature expansion
 - manual VS Code Extension Development Host verification on a machine with VS Code installed
-- gradual Skill Package adoption: schema-optional and prompt-only package paths
+- refining gradual Skill Package adoption after `sit standardize`: domain-specific schema tightening, prompt-only maturity states, and workflow/agent package shapes
 - user-facing docs cleanup that separates product usage from internal control-theory planning
 - real PyInstaller build verification once PyInstaller is installed
 - a second real Skill pilot for `deps.yaml`, release bundles, and reverse dependencies
