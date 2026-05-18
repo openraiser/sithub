@@ -20,6 +20,7 @@ from .package import load_package
 from .release import release_package
 from .ref import load_compare_package, load_package_pair, parse_git_range
 from .report import build_report, build_report_payload, render_report_html, render_report_markdown
+from .script_summary import render_script_details
 from .summary import build_pr_summary, build_pr_summary_payload, build_pr_summary_text
 from .validate import build_test_payload, run_golden_schema_tests, validate_package
 
@@ -509,7 +510,9 @@ def _render_diff(
             "### Events",
             "",
         ]
-        lines.extend(f"- `{message}`" for message in result.messages)
+        for event in result.events:
+            lines.append(f"- `{event.message}`")
+            lines.extend(f"  - `{detail}`" for detail in _event_detail_lines(event))
         if result.text_diffs:
             lines.extend(["", "### Prompt/Reference Text Summary", ""])
             lines.extend(f"- `{text_diff.summary}`" for text_diff in result.text_diffs)
@@ -521,7 +524,10 @@ def _render_diff(
                 lines.extend(["```", ""])
         return "\n".join(lines) + "\n"
     if output_format == "plain":
-        lines = list(result.messages)
+        lines = []
+        for event in result.events:
+            lines.append(event.message)
+            lines.extend(_event_detail_lines(event))
         if show_prompt_diff and result.text_diffs:
             lines.extend(["", "Prompt/Reference Unified Diff:"])
             for text_diff in result.text_diffs:
@@ -542,7 +548,9 @@ def _render_diff(
         grouped.setdefault(event.category, []).append(event.message)
     for category in sorted(grouped):
         lines.append(f"[{category}]")
-        lines.extend(f"  - {message}" for message in grouped[category])
+        for event in sorted((event for event in result.events if event.category == category), key=lambda item: item.message):
+            lines.append(f"  - {event.message}")
+            lines.extend(f"    {detail}" for detail in _event_detail_lines(event))
         lines.append("")
     if result.text_diffs:
         lines.extend(["Prompt/Reference Text Summary:"])
@@ -553,6 +561,13 @@ def _render_diff(
             lines.append(f"--- {text_diff.kind}: {text_diff.name}")
             lines.extend(text_diff.lines)
     return "\n".join(lines) + "\n"
+
+
+def _event_detail_lines(event) -> list[str]:
+    details = getattr(event, "details", None)
+    if not isinstance(details, dict):
+        return []
+    return render_script_details(details, indent="")
 
 
 def _render_pr_summary(

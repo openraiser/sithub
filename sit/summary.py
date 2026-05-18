@@ -4,6 +4,7 @@ from typing import Any
 
 from .diff import diff_packages
 from .package import SkillPackage
+from .script_summary import render_script_details
 from .validate import run_golden_schema_tests, validate_package
 
 
@@ -31,7 +32,10 @@ def build_pr_summary(
         "### Semantic Diff",
         "",
     ]
-    lines.extend(f"- `{message}`" for message in diff["messages"])
+    for event in diff["events"]:
+        lines.append(f"- `{event['message']}`")
+        for detail in _event_detail_lines(event):
+            lines.append(f"  - `{detail}`")
     if data["prompt_reference_summary"]:
         lines.extend(["", "### Prompt/Reference Text Summary", ""])
         lines.extend(f"- `{summary}`" for summary in data["prompt_reference_summary"])
@@ -62,7 +66,9 @@ def build_pr_summary_text(old: SkillPackage, new: SkillPackage) -> str:
         "",
         "Semantic Diff:",
     ]
-    lines.extend(data["diff"]["messages"])
+    for event in data["diff"]["events"]:
+        lines.append(event["message"])
+        lines.extend(_event_detail_lines(event))
     if data["prompt_reference_summary"]:
         lines.extend(["", "Prompt/Reference Text Summary:"])
         lines.extend(data["prompt_reference_summary"])
@@ -121,3 +127,10 @@ def _test_status(tests) -> str:
     if tests is None:
         return "skipped"
     return "pass" if tests.ok else "fail"
+
+
+def _event_detail_lines(event: dict[str, Any]) -> list[str]:
+    details = event.get("details")
+    if not isinstance(details, dict):
+        return []
+    return render_script_details(details, indent="")

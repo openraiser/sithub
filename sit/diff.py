@@ -9,6 +9,7 @@ from typing import Any
 
 from .errors import SitError
 from .package import SkillPackage, load_json, load_jsonl
+from .script_summary import summarize_script_change
 
 
 @dataclass(frozen=True)
@@ -17,6 +18,7 @@ class DiffEvent:
     category: str
     changed: bool = False
     breaking: bool = False
+    details: dict[str, Any] | None = None
 
     @property
     def severity(self) -> str:
@@ -27,13 +29,16 @@ class DiffEvent:
         return "info"
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        data: dict[str, Any] = {
             "category": self.category,
             "severity": self.severity,
             "changed": self.changed,
             "breaking": self.breaking,
             "message": self.message,
         }
+        if self.details:
+            data["details"] = self.details
+        return data
 
 
 @dataclass(frozen=True)
@@ -82,7 +87,15 @@ class PackageDiff:
     breaking: bool = False
     changed: bool = False
 
-    def add(self, message: str, *, changed: bool = False, breaking: bool = False, category: str | None = None) -> None:
+    def add(
+        self,
+        message: str,
+        *,
+        changed: bool = False,
+        breaking: bool = False,
+        category: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
         self.messages.append(message)
         self.events.append(
             DiffEvent(
@@ -90,6 +103,7 @@ class PackageDiff:
                 category=category or _infer_category(message),
                 changed=changed or breaking,
                 breaking=breaking,
+                details=details,
             )
         )
         self.changed = self.changed or changed or breaking
@@ -220,9 +234,11 @@ def _diff_resource_group(result: PackageDiff, label: str, old_paths: dict[str, P
     new_names = set(new_paths)
 
     for name in sorted(new_names - old_names):
-        result.add(_resource_message(label, "added", name), changed=True, category=label)
+        details = _resource_details(label, "added", None, new_paths[name])
+        result.add(_resource_message(label, "added", name), changed=True, category=label, details=details)
     for name in sorted(old_names - new_names):
-        result.add(_resource_message(label, "removed", name), changed=True, category=label)
+        details = _resource_details(label, "removed", old_paths[name], None)
+        result.add(_resource_message(label, "removed", name), changed=True, category=label, details=details)
 
     for name in sorted(old_names & new_names):
         old_path = old_paths[name]
@@ -236,7 +252,8 @@ def _diff_resource_group(result: PackageDiff, label: str, old_paths: dict[str, P
                 if text_diff is not None:
                     result.text_diffs.append(text_diff)
                     detail = " (" + _text_diff_inline_summary(text_diff) + ")"
-            result.add(_resource_message(label, "changed", name, detail=detail), changed=True, category=label)
+            details = _resource_details(label, "changed", old_path, new_path)
+            result.add(_resource_message(label, "changed", name, detail=detail), changed=True, category=label, details=details)
 
 
 def _resource_message(label: str, action: str, name: str, *, detail: str = "") -> str:
@@ -244,6 +261,12 @@ def _resource_message(label: str, action: str, name: str, *, detail: str = "") -
     if label == "script":
         message += " (review required; cover with runner or targeted tests)"
     return message
+
+
+def _resource_details(label: str, action: str, old_path: Path | None, new_path: Path | None) -> dict[str, Any] | None:
+    if label != "script":
+        return None
+    return summarize_script_change(action, old_path, new_path)
 
 
 def _try_build_text_diff(kind: str, name: str, old_path: Path, new_path: Path) -> TextDiff | None:

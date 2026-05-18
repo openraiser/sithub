@@ -6,6 +6,7 @@ from typing import Any
 
 from .diff import diff_packages
 from .package import SkillPackage
+from .script_summary import render_script_details
 from .validate import CheckResult, run_golden_schema_tests, validate_package
 
 
@@ -112,7 +113,10 @@ def render_report_markdown(data: dict[str, Any]) -> str:
                 f"- Current: `{diff['new']['name']}@{diff['new']['version']}`",
             ]
         )
-        lines.extend(f"- `{_display_text(message, data)}`" for message in diff["messages"])
+        for event in diff["events"]:
+            lines.append(f"- `{_display_text(str(event.get('message', '')), data)}`")
+            for detail in _event_detail_lines(event):
+                lines.append(f"  - `{_display_text(detail, data)}`")
 
     lines.extend(
         [
@@ -322,7 +326,12 @@ def _diff_items(events: list[dict[str, Any]], data: dict[str, Any]) -> list[str]
         category = str(event.get("category", "event"))
         message = _display_text(str(event.get("message", "")), data)
         schema_path = _schema_path_from_message(message)
+        detail_lines = _event_detail_lines(event)
         long_class = " long" if len(message) > 120 else ""
+        details_html = ""
+        if detail_lines:
+            detail_items = "\n".join(f"<li>{escape(_display_text(detail, data))}</li>" for detail in detail_lines)
+            details_html = f'<ul class="detail-list">{detail_items}</ul>'
         items.append(
             "\n".join(
                 [
@@ -333,6 +342,7 @@ def _diff_items(events: list[dict[str, Any]], data: dict[str, Any]) -> list[str]
                     "</div>",
                     f"{_path_badge(schema_path)}",
                     f"<p>{escape(message)}</p>",
+                    details_html,
                     "</article>",
                 ]
             )
@@ -412,6 +422,13 @@ def _repro_commands(data: dict[str, Any]) -> list[str]:
 
 def _display_messages(messages: list[str], data: dict[str, Any]) -> list[str]:
     return [_display_text(message, data) for message in messages]
+
+
+def _event_detail_lines(event: dict[str, Any]) -> list[str]:
+    details = event.get("details")
+    if not isinstance(details, dict):
+        return []
+    return render_script_details(details, indent="")
 
 
 def _display_text(text: str, data: dict[str, Any]) -> str:
@@ -653,6 +670,13 @@ h2 {
 .diff-item p {
   margin: 5px 0 0;
   overflow-wrap: anywhere;
+}
+.detail-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
 }
 pre {
   margin: 0;

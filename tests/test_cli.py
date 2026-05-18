@@ -53,8 +53,32 @@ class CliTest(unittest.TestCase):
             root = Path(tmp)
             old = _write_package(root / "old", version="0.1.0")
             new = _write_package(root / "new", version="0.1.0")
-            _write_resource_files(old, script="print('old')\n", asset="template-v1\n", reference="guide v1\n")
-            _write_resource_files(new, script="print('new')\n", asset="template-v2\n", reference="guide v2\n")
+            old_script = "\n".join(
+                [
+                    '"""Scan paper inputs."""',
+                    "import argparse",
+                    "parser = argparse.ArgumentParser()",
+                    "parser.add_argument('--input')",
+                    "def scan():",
+                    "    return 'old'",
+                    "",
+                ]
+            )
+            new_script = "\n".join(
+                [
+                    '"""Scan paper inputs and PDF assets."""',
+                    "import argparse",
+                    "import subprocess",
+                    "parser = argparse.ArgumentParser()",
+                    "parser.add_argument('--input')",
+                    "parser.add_argument('--pdf')",
+                    "def scan():",
+                    "    return 'new'",
+                    "",
+                ]
+            )
+            _write_resource_files(old, script=old_script, asset="template-v1\n", reference="guide v1\n")
+            _write_resource_files(new, script=new_script, asset="template-v2\n", reference="guide v2\n")
 
             text_code, text_output = _run_cli(["diff", str(old), str(new)])
             json_code, json_output = _run_cli(["diff", str(old), str(new), "--format", "json"])
@@ -64,6 +88,8 @@ class CliTest(unittest.TestCase):
 
             self.assertEqual(text_code, 0)
             self.assertIn("SCRIPT changed scripts/scan.py", text_output)
+            self.assertIn("summary: changed python script", text_output)
+            self.assertIn("changes: added CLI args: --pdf", text_output)
             self.assertIn("ASSET changed assets/template.html", text_output)
             self.assertIn("REFERENCE changed references/guide.md", text_output)
             self.assertIn("RISK review-required", text_output)
@@ -72,16 +98,23 @@ class CliTest(unittest.TestCase):
             payload = json.loads(json_output)
             self.assertEqual(payload["risk"], "review-required")
             self.assertEqual(payload["suggested_bump"], "minor")
-            self.assertTrue(any(event["category"] == "script" and "scripts/scan.py" in event["message"] for event in payload["events"]))
+            script_events = [event for event in payload["events"] if event["category"] == "script" and "scripts/scan.py" in event["message"]]
+            self.assertTrue(script_events)
+            self.assertEqual(script_events[0]["details"]["kind"], "script_summary")
+            self.assertIn("--pdf", script_events[0]["details"]["cli_args"])
+            self.assertIn("added CLI args: --pdf", script_events[0]["details"]["changes"])
             self.assertTrue(any(event["category"] == "asset" and "assets/template.html" in event["message"] for event in payload["events"]))
             self.assertTrue(any(event["category"] == "reference" and "references/guide.md" in event["message"] for event in payload["events"]))
 
             self.assertEqual(report_code, 0)
             self.assertIn("SCRIPT changed scripts/scan.py", report_output)
+            self.assertIn("changes: added CLI args: --pdf", report_output)
             self.assertEqual(summary_code, 0)
             self.assertIn("ASSET changed assets/template.html", summary_output)
+            self.assertIn("summary: changed python script", summary_output)
             self.assertEqual(ci_code, 0)
             self.assertIn("REFERENCE changed references/guide.md", ci_output)
+            self.assertIn("changes: added CLI args: --pdf", ci_output)
 
     def test_diff_reports_recursive_schema_changes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
