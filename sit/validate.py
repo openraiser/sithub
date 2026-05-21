@@ -11,7 +11,7 @@ from typing import Any
 from jsonschema import Draft202012Validator, SchemaError, ValidationError
 
 from .errors import SitError
-from .package import SkillPackage, load_json, load_jsonl
+from .package import MANIFEST_STATUSES, SkillPackage, load_json, load_jsonl
 
 MATCH_MODES = {"schema_only", "exact", "partial", "contains"}
 
@@ -49,6 +49,7 @@ def validate_package(package: SkillPackage) -> CheckResult:
     else:
         result.add_fail("skill.yaml missing field: version")
 
+    _check_status(result, package)
     _check_path(result, package.manifest_path, "manifest")
 
     for label, paths in (
@@ -83,6 +84,15 @@ def validate_package(package: SkillPackage) -> CheckResult:
 
     _check_commands(result, package)
     return result
+
+
+def _check_status(result: CheckResult, package: SkillPackage) -> None:
+    status = package.status
+    if status in MANIFEST_STATUSES:
+        result.add_ok(f"status: {status}")
+    else:
+        allowed = ", ".join(sorted(MANIFEST_STATUSES))
+        result.add_fail(f"skill.yaml field 'status' must be one of: {allowed}")
 
 
 def _check_match_modes(result: CheckResult, records: list[dict[str, Any]], test_name: str) -> None:

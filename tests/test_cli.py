@@ -454,6 +454,53 @@ class CliTest(unittest.TestCase):
             self.assertIn("Suggested version bump: major", text_output)
             self.assertIn("Semantic Diff:", text_output)
 
+    def test_manifest_status_validates_and_diff_reports_lifecycle_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            active = _write_package(root / "active", version="0.1.0")
+            deprecated = _write_package(root / "deprecated", version="0.1.0")
+            retired = _write_package(root / "retired", version="0.1.0")
+            invalid = _write_package(root / "invalid", version="0.1.0")
+            _set_manifest_status(deprecated, "deprecated")
+            _set_manifest_status(retired, "retired")
+            _set_manifest_status(invalid, "paused")
+
+            validate_code, validate_output = _run_cli(["validate", str(active)])
+            invalid_code, invalid_output = _run_cli(["validate", str(invalid)])
+            deprecated_code, deprecated_output = _run_cli(["diff", str(active), str(deprecated), "--format", "json"])
+            retired_code, retired_output = _run_cli(["diff", str(deprecated), str(retired), "--format", "json"])
+
+            self.assertEqual(validate_code, 0)
+            self.assertIn("OK  status: active", validate_output)
+            self.assertEqual(invalid_code, 1)
+            self.assertIn("skill.yaml field 'status' must be one of", invalid_output)
+
+            self.assertEqual(deprecated_code, 0)
+            deprecated_payload = json.loads(deprecated_output)
+            self.assertEqual(deprecated_payload["risk"], "review-required")
+            self.assertEqual(deprecated_payload["suggested_bump"], "minor")
+            self.assertTrue(
+                any(
+                    event["category"] == "status"
+                    and event["message"] == "STATUS changed active -> deprecated"
+                    and not event["breaking"]
+                    for event in deprecated_payload["events"]
+                )
+            )
+
+            self.assertEqual(retired_code, 0)
+            retired_payload = json.loads(retired_output)
+            self.assertEqual(retired_payload["risk"], "breaking-change")
+            self.assertEqual(retired_payload["suggested_bump"], "major")
+            self.assertTrue(
+                any(
+                    event["category"] == "status"
+                    and event["message"] == "STATUS changed deprecated -> retired"
+                    and event["breaking"]
+                    for event in retired_payload["events"]
+                )
+            )
+
     def test_info_outputs_json_snapshot_without_git_repo(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             package = _write_package(Path(tmp) / "pkg", version="0.1.0")
@@ -586,6 +633,34 @@ dependencies:
             self.assertIn("Status: fail", output)
             self.assertIn("ERR version 0.2.0 does not satisfy <0.2.0", output)
             self.assertTrue(upstream.exists())
+
+    def test_deps_check_warns_for_deprecated_or_retired_dependencies(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            upstream = _write_package(root / "upstream", version="0.1.0")
+            _set_manifest_status(upstream, "retired")
+            downstream = _write_package(root / "downstream", version="0.1.0")
+            _write_deps_yaml(
+                downstream,
+                """
+dependencies:
+  - name: upstream
+    path: ../upstream
+    version: ">=0.1.0"
+""",
+            )
+
+            code, output = _run_cli(["deps", "check", str(downstream)])
+            json_code, json_output = _run_cli(["deps", "check", str(downstream), "--format", "json"])
+
+            self.assertEqual(code, 0)
+            self.assertIn("Status: warn", output)
+            self.assertIn("status: retired", output)
+            self.assertIn("WARN upstream status is retired", output)
+            self.assertEqual(json_code, 0)
+            payload = json.loads(json_output)
+            self.assertEqual(payload["dependencies"][0]["status"], "retired")
+            self.assertIn("upstream status is retired", payload["warnings"])
 
     def test_commit_prints_dependency_warning_without_blocking(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -735,7 +810,7 @@ dependencies:
             self.assertEqual(json_code, 0)
             json_payload = json.loads(json_output)
             self.assertEqual(json_payload["schema_version"], "sit.standardize.v1")
-            self.assertEqual(json_payload["root"], str(json_root))
+            self.assertEqual(json_payload["root"], str(json_root.resolve()))
 
             no_git_root = Path(tmp) / "prompt-no-git"
             no_git_root.mkdir()
@@ -763,7 +838,7 @@ dependencies:
             self.assertEqual(json_code, 0)
             payload = json.loads(json_output)
             self.assertEqual(payload["schema_version"], "sit.standardize.v1")
-            self.assertEqual(payload["root"], str(root))
+            self.assertEqual(payload["root"], str(root.resolve()))
 
     def test_golden_match_modes_pass_and_fail(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -998,7 +1073,7 @@ dependencies:
             self.assertEqual(payload["package"]["source"], "HEAD")
             self.assertEqual(payload["diff"]["old"]["source"], "HEAD~1")
             self.assertEqual(payload["diff"]["new"]["source"], "HEAD")
-            self.assertIn("/tmp/sit-ref-", payload["package"]["root"])
+            self.assertIn("sit-ref-", payload["package"]["root"])
             self.assertEqual(html_code, 0)
             self.assertNotIn("/tmp/sit-ref-", html_output)
             self.assertIn("python3 -m sit.cli diff HEAD~1..HEAD", html_output)
@@ -1476,6 +1551,27 @@ def _upgrade_package_to_v2(root: Path) -> None:
 
     record = {"case_id": "case-1", "input": {"text": "hello"}, "expected": {"answer": "ok", "confidence": "high"}}
     (root / "tests" / "golden.jsonl").write_text(json.dumps(record) + "\n", encoding="utf-8")
+
+
+def _set_manifest_status(root: Path, status: str) -> None:
+    path = root / "skill.yaml"
+    lines = path.read_text(encoding="utf-8").splitlines()
+    updated: list[str] = []
+    replaced = False
+    inserted = False
+    for line in lines:
+        if line.startswith("status:"):
+            updated.append(f"status: {status}")
+            replaced = True
+            inserted = True
+            continue
+        updated.append(line)
+        if not replaced and not inserted and line.startswith("version:"):
+            updated.append(f"status: {status}")
+            inserted = True
+    if not inserted:
+        updated.append(f"status: {status}")
+    path.write_text("\n".join(updated) + "\n", encoding="utf-8")
 
 
 def _write_runner_script(root: Path, *, answer_expr: str) -> None:

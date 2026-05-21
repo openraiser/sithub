@@ -8,7 +8,7 @@ import re
 from typing import Any
 
 from .errors import SitError
-from .package import SkillPackage, load_json, load_jsonl
+from .package import DEFAULT_MANIFEST_STATUS, SkillPackage, load_json, load_jsonl
 from .script_summary import summarize_script_change
 
 
@@ -173,7 +173,8 @@ def diff_packages(old: SkillPackage, new: SkillPackage) -> PackageDiff:
 
 
 def _diff_manifest(result: PackageDiff, old: dict[str, Any], new: dict[str, Any]) -> None:
-    ignored = {"prompts", "schemas", "tests"}
+    _diff_status(result, old, new)
+    ignored = {"prompts", "schemas", "tests", "status"}
     old_keys = set(old) - ignored
     new_keys = set(new) - ignored
 
@@ -184,6 +185,25 @@ def _diff_manifest(result: PackageDiff, old: dict[str, Any], new: dict[str, Any]
     for key in sorted(old_keys & new_keys):
         if old[key] != new[key]:
             result.add(f"MANIFEST changed {key}: {_short(old[key])} -> {_short(new[key])}", changed=True)
+
+
+def _diff_status(result: PackageDiff, old: dict[str, Any], new: dict[str, Any]) -> None:
+    old_status = _manifest_status(old)
+    new_status = _manifest_status(new)
+    if old_status == new_status:
+        return
+    result.add(
+        f"STATUS changed {old_status} -> {new_status}",
+        changed=True,
+        breaking=new_status == "retired",
+        category="status",
+        details={"old": old_status, "new": new_status},
+    )
+
+
+def _manifest_status(manifest: dict[str, Any]) -> str:
+    value = manifest.get("status")
+    return value if isinstance(value, str) else DEFAULT_MANIFEST_STATUS
 
 
 def _diff_path_group(

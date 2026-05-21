@@ -51,9 +51,13 @@ The completed local loop now includes:
 - VS Code extension minimum loop that calls existing `sit` JSON/text outputs for Info, Validate, Test, Diff, and status refresh
 - VS Code extension build/package path with npm lockfile, TypeScript compile, and VSIX packaging check
 - `sit standardize` for converting existing prompt or `SKILL.md` projects into standard Skill Packages with prompts, schemas, golden tests, CI, and reports
+- documented agent JSON contracts under `docs/schemas/` for `sit.info.v1`, `sit.pr_summary.v1`, `sit.report.v1`, and `sit.test.v1`
+- manifest `status: active|deprecated|retired` lifecycle semantics with validate/diff/deps visibility
+- `experiments/` multi-agent driver smoke loop with fake-agent fork/evolve/propose/verify/merge trajectory JSONL
 
 The next CLI milestone should focus on:
 
+- H2 regression recovery experiment setup on top of `experiments/driver.py`
 - running external pilots with `docs/pilots/external-trial-kit.md` before more large CLI feature expansion
 - manual VS Code Extension Development Host verification on a machine with VS Code installed
 - refining gradual Skill Package adoption after `sit standardize`: domain-specific schema tightening, prompt-only maturity states, and workflow/agent package shapes

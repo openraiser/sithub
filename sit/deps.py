@@ -16,6 +16,7 @@ class DependencyCheck:
     name: str
     path: str
     version: str | None
+    status: str | None
     version_range: str | None
     ok: bool = True
     warnings: list[str] = field(default_factory=list)
@@ -27,6 +28,7 @@ class DependencyCheck:
             "name": self.name,
             "path": self.path,
             "version": self.version,
+            "status": self.status,
             "version_range": self.version_range,
             "ok": self.ok,
             "warnings": self.warnings,
@@ -71,6 +73,8 @@ def render_deps_text(payload: dict[str, Any]) -> str:
 
     for item in dependencies:
         lines.append(f"- {item['name']}: {item['version'] or '<unknown>'} at {item['path']}")
+        if item.get("status"):
+            lines.append(f"  status: {item['status']}")
         if item.get("version_range"):
             lines.append(f"  range: {item['version_range']}")
         if item.get("risk"):
@@ -150,7 +154,15 @@ def _check_dependency(package: SkillPackage, item: dict[str, Any]) -> Dependency
     risk: str | None = None
 
     if not isinstance(raw_path, str):
-        return DependencyCheck(name=name, path="<missing>", version=None, version_range=_range_text(version_range), ok=False, errors=["missing local path"])
+        return DependencyCheck(
+            name=name,
+            path="<missing>",
+            version=None,
+            status=None,
+            version_range=_range_text(version_range),
+            ok=False,
+            errors=["missing local path"],
+        )
 
     dep_path = (package.root / raw_path).resolve()
     try:
@@ -160,10 +172,14 @@ def _check_dependency(package: SkillPackage, item: dict[str, Any]) -> Dependency
             name=name,
             path=str(dep_path),
             version=None,
+            status=None,
             version_range=_range_text(version_range),
             ok=False,
             errors=[str(exc)],
         )
+
+    if dependency.status in {"deprecated", "retired"}:
+        warnings.append(f"{name} status is {dependency.status}")
 
     if version_range and not _version_satisfies(dependency.version, str(version_range)):
         errors.append(f"version {dependency.version or '<unknown>'} does not satisfy {version_range}")
@@ -188,6 +204,7 @@ def _check_dependency(package: SkillPackage, item: dict[str, Any]) -> Dependency
         name=name,
         path=str(dep_path),
         version=dependency.version,
+        status=dependency.status,
         version_range=_range_text(version_range),
         ok=not errors,
         warnings=warnings,
@@ -210,6 +227,12 @@ def _reverse_dependency_record(package: SkillPackage, dependent: SkillPackage, i
     if version_range and not _version_satisfies(package.version, version_range):
         status = "incompatible"
         messages.append(f"version {package.version or '<unknown>'} does not satisfy {version_range}")
+    if package.status == "retired":
+        status = "incompatible"
+        messages.append("dependency status is retired")
+    elif package.status == "deprecated" and status == "compatible":
+        status = "review"
+        messages.append("dependency status is deprecated")
 
     baseline_path = item.get("baseline_path") or item.get("previous_path")
     if isinstance(baseline_path, str):

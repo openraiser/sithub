@@ -15,6 +15,9 @@ RESOURCE_GROUPS = {
     "references": "reference",
 }
 
+MANIFEST_STATUSES = {"active", "deprecated", "retired"}
+DEFAULT_MANIFEST_STATUS = "active"
+
 
 @dataclass(frozen=True)
 class SkillPackage:
@@ -36,6 +39,11 @@ class SkillPackage:
     def description(self) -> str | None:
         value = self.manifest.get("description")
         return value if isinstance(value, str) else None
+
+    @property
+    def status(self) -> str:
+        value = self.manifest.get("status")
+        return value if isinstance(value, str) else DEFAULT_MANIFEST_STATUS
 
     def resolve_manifest_path(self, value: str) -> Path:
         return (self.root / value).resolve()

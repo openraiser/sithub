@@ -45,6 +45,7 @@ def _skill_yaml(name: str) -> str:
     manifest = {
         "name": name,
         "version": "0.1.0",
+        "status": "active",
         "description": f"{name} Skill Package.",
         "prompts": {"system": "prompts/system.md"},
         "schemas": {

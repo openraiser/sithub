@@ -254,6 +254,7 @@ def _manifest(root: Path, name: str, version: str, description: str, prompts: di
     manifest = {
         "name": name,
         "version": version,
+        "status": "active",
         "description": description,
         "prompts": prompts,
         "schemas": {

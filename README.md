@@ -101,6 +101,7 @@ Minimal `skill.yaml`:
 ```yaml
 name: my-skill
 version: 0.1.0
+status: active
 description: Short description.
 
 prompts:
@@ -118,6 +119,7 @@ commands:
 ```
 
 `scripts/`, `assets/`, and `references/` are scanned by semantic diff when present.
+`status` defaults to `active`; set it to `deprecated` or `retired` when a Skill is being phased out so diff and dependency checks can warn reviewers.
 
 ## Core Commands
 
@@ -141,6 +143,13 @@ commands:
 | `sit release minor . --bundle` | Bump version, create release commit/tag, and write bundle. |
 
 Git passthrough commands are also available: `sit add`, `sit push`, `sit pull`, `sit branch`, `sit checkout`, and `sit log`.
+
+Machine-readable contracts for agent drivers and integrations are documented under `docs/schemas/`:
+
+- `sit.info.v1`
+- `sit.test.v1`
+- `sit.report.v1`
+- `sit.pr_summary.v1`
 
 ## Semantic Diff Example
 
@@ -192,6 +201,11 @@ External trial kit:
 Real pilot walkthrough:
 
 - `docs/walkthrough.md`
+
+Multi-agent experiment driver:
+
+- `experiments/README.md`
+- `python3 experiments/driver.py --experiment h2 --condition all --steps 8 --bad-step 4 --seeds 0,1`
 
 ## License
 
