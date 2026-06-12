@@ -6,7 +6,7 @@ import subprocess
 from typing import Any
 
 from .errors import SitError
-from .git import git_root
+from .git import git_root, has_pack_errors
 from .package import SkillPackage, load_package
 from .validate import run_golden_schema_tests, validate_package
 
@@ -42,6 +42,7 @@ def build_doctor_payload(package_spec: str | Path = ".") -> dict[str, Any]:
         package_error = str(exc)
 
     checks.append(_check_git(Path(package_spec).expanduser()))
+    checks.append(_check_git_pack_health(Path(package_spec).expanduser()))
     checks.append(_check_github_remote(Path(package_spec).expanduser()))
     checks.append(_check_manifest(package, package_error))
 
@@ -87,6 +88,17 @@ def _check_git(package_path: Path) -> DoctorCheck:
     if dirty:
         return DoctorCheck("git", "warn", "Git repository detected with uncommitted changes", details)
     return DoctorCheck("git", "pass", "Git repository detected", details)
+
+
+def _check_git_pack_health(package_path: Path) -> DoctorCheck:
+    root = git_root(_existing_path(package_path))
+    if root is None:
+        return DoctorCheck("git_pack_health", "pass", "skipped (not a git repo)")
+
+    issues = has_pack_errors(root)
+    if issues:
+        return DoctorCheck("git_pack_health", "warn", "pack index issues detected", issues)
+    return DoctorCheck("git_pack_health", "pass", "pack indexes healthy")
 
 
 def _check_github_remote(package_path: Path) -> DoctorCheck:

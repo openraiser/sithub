@@ -21,6 +21,7 @@ from .package import load_package
 from .release import release_package
 from .ref import load_compare_package, load_package_pair, parse_git_range
 from .report import build_report, build_report_payload, render_report_html, render_report_markdown
+from .review import build_skill_review_payload, render_skill_review_markdown
 from .script_summary import render_script_details
 from .summary import build_pr_summary, build_pr_summary_payload, build_pr_summary_text
 from .validate import build_test_payload, run_golden_schema_tests, validate_package
@@ -298,30 +299,81 @@ def cmd_init(args: argparse.Namespace) -> int:
 
 
 def cmd_git(args: argparse.Namespace) -> int:
-    return run_git([args.git_command, *args.git_args], check=False)
+    result = run_git([args.git_command, *args.git_args], check=False)
+    if args.git_command == "add" and result == 0:
+        _print_add_gate_hints()
+    return result
+
+
+def _print_add_gate_hints() -> None:
+    """After staging files, hint which ones will trigger a version gate bump."""
+    try:
+        from .git import git_output as _git_out
+        staged = _git_out(["diff", "--cached", "--name-only"])
+    except Exception:
+        return
+    if not staged:
+        return
+
+    bump_triggers: list[str] = []
+    for path in staged.splitlines():
+        path_lower = path.lower()
+        if path_lower.endswith("skill.md") or path_lower.startswith("references/"):
+            bump_triggers.append(f"  {path} (prompt change)")
+        elif path_lower.startswith("scripts/") and path_lower.endswith(".py"):
+            bump_triggers.append(f"  {path} (script change)")
+        elif path_lower == "skill.yaml":
+            bump_triggers.append(f"  {path} (manifest)")
+
+    if bump_triggers:
+        print(f"staged {len(staged.splitlines())} file(s); {len(bump_triggers)} may require version bump:")
+        for trigger in bump_triggers[:6]:
+            print(trigger)
+        if len(bump_triggers) > 6:
+            print(f"  ... and {len(bump_triggers) - 6} more")
+    else:
+        print(f"staged {len(staged.splitlines())} file(s)")
 
 
 def cmd_commit(args: argparse.Namespace) -> int:
     if not args.no_verify:
         package = load_package(args.package)
         validation = validate_package(package)
-        for message in validation.messages:
-            print(message)
         if not validation.ok:
+            for message in validation.messages:
+                print(message)
             raise SitError("commit blocked: validation failed")
 
         if not args.no_test:
             tests = run_golden_schema_tests(package)
-            for message in tests.messages:
-                print(message)
             if not tests.ok:
+                for message in tests.messages:
+                    print(message)
                 raise SitError("commit blocked: golden tests failed")
 
         if not args.no_version_gate:
+            # If --bump is provided, auto-bump version before gate check
+            if args.bump:
+                gate_pre = check_version_gate_against_head(package)
+                if not gate_pre.ok:
+                    _auto_bump_version(package, args.bump)
+                    package = load_package(args.package)
+
             gate = check_version_gate_against_head(package)
-            print(gate.message)
             if not gate.ok:
+                print(gate.message)
+                if args.bump:
+                    print(f"sit: version bump '{args.bump}' was insufficient for the semantic changes detected.")
+                else:
+                    _print_gate_hint(gate)
                 raise SitError(format_gate_failure(gate))
+            # Compact success line
+            print(f"gate: {gate.message.splitlines()[0]}")
+        else:
+            # Print compact validation summary
+            test_count = len(validation.messages)
+            print(f"validated ({test_count} checks passed)")
+
         for warning in dependency_warnings_for_commit(package):
             print(f"WARN {warning}")
 
@@ -329,7 +381,65 @@ def cmd_commit(args: argparse.Namespace) -> int:
     if args.message:
         git_args.extend(["-m", args.message])
     git_args.extend(args.git_args)
-    return run_git(git_args, check=False)
+    result = run_git(git_args, check=False)
+
+    # Compact post-commit summary
+    if result == 0 and not args.no_verify:
+        package = load_package(args.package)
+        short_hash = _git_short_hash(package.root)
+        version_info = f"{package.version}" if package.version else ""
+        print(f"committed {short_hash} ({version_info})")
+
+    return result
+
+
+def _auto_bump_version(package, bump: str) -> None:
+    """Bump version in skill.yaml and stage the change."""
+    import re
+    manifest = package.manifest_path
+    text = manifest.read_text(encoding="utf-8")
+    old_version = package.version or "0.0.0"
+    new_version = _compute_bumped_version(old_version, bump)
+    new_text = re.sub(
+        r"^(version:\s*).*$",
+        f"\\g<1>{new_version}",
+        text,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    manifest.write_text(new_text, encoding="utf-8")
+    run_git(["add", str(manifest)], check=False)
+    print(f"auto-bumped version: {old_version} -> {new_version}")
+
+
+def _compute_bumped_version(version: str, bump: str) -> str:
+    parts = version.split(".")
+    if len(parts) != 3:
+        parts = ["0", "0", "0"]
+    major, minor, patch = int(parts[0]), int(parts[1]), int(parts[2])
+    if bump == "major":
+        return f"{major + 1}.0.0"
+    elif bump == "minor":
+        return f"{major}.{minor + 1}.0"
+    else:
+        return f"{major}.{minor}.{patch + 1}"
+
+
+def _print_gate_hint(gate) -> None:
+    """Print a short actionable hint when the gate blocks."""
+    if gate.diff is not None:
+        events = [e for e in gate.diff.events if e.category not in {"package", "risk"}]
+        if events:
+            print(f"hint: {len(events)} semantic changes detected. Use --bump {gate.required_bump} to auto-fix.")
+
+
+def _git_short_hash(path) -> str:
+    """Get the current HEAD short hash."""
+    from .git import git_output as _git_out
+    try:
+        return _git_out(["rev-parse", "--short", "HEAD"], cwd=path)
+    except Exception:
+        return "??????"
 
 
 def cmd_pr_summary(args: argparse.Namespace) -> int:
@@ -350,6 +460,34 @@ def cmd_pr_summary(args: argparse.Namespace) -> int:
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(content, encoding="utf-8")
         print(f"Wrote PR summary: {output}")
+    else:
+        print(content, end="")
+    return 0
+
+
+def cmd_review(args: argparse.Namespace) -> int:
+    git_range = parse_git_range(args.old) if args.new is None else None
+    with load_package_pair(args.old, args.new) as (old, new):
+        payload = build_skill_review_payload(
+            old,
+            new,
+            baseline_source=git_range.old if git_range else args.old,
+            current_source=git_range.new if git_range else args.new,
+        )
+        if args.format == "json":
+            content = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+        else:
+            content = render_skill_review_markdown(
+                payload,
+                current_spec="." if git_range else None,
+                diff_command=f"sit diff {args.old}" if git_range else None,
+            )
+
+    if args.output:
+        output = Path(args.output).expanduser().resolve()
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(content, encoding="utf-8")
+        print(f"Wrote Skill review: {output}")
     else:
         print(content, end="")
     return 0
@@ -466,6 +604,13 @@ def _build_parser() -> argparse.ArgumentParser:
     pr_summary.add_argument("-o", "--output", help="Write summary to this path instead of stdout")
     pr_summary.set_defaults(func=cmd_pr_summary)
 
+    review = subparsers.add_parser("review", help="Generate a PR-ready Skill review comment")
+    review.add_argument("old", help="Baseline Skill Package directory, skill.yaml, or Git range such as main..HEAD")
+    review.add_argument("new", nargs="?", help="Current Skill Package directory or skill.yaml")
+    review.add_argument("--format", choices=["markdown", "json"], default="markdown", help="Output format")
+    review.add_argument("-o", "--output", help="Write review to this path instead of stdout")
+    review.set_defaults(func=cmd_review)
+
     release = subparsers.add_parser("release", help="Bump package version, write release report, and tag with Git")
     release.add_argument("bump", choices=["patch", "minor", "major"], help="Semantic version bump")
     release.add_argument("package", nargs="?", default=".", help="Skill Package directory or skill.yaml")
@@ -481,6 +626,8 @@ def _build_parser() -> argparse.ArgumentParser:
 
     commit = subparsers.add_parser("commit", help="Validate/test the Skill Package, then pass through to git commit")
     commit.add_argument("-m", "--message", help="Commit message")
+    commit.add_argument("--bump", choices=["patch", "minor", "major"],
+                        help="Auto-bump skill.yaml version before committing if the version gate requires it")
     commit.add_argument("--package", default=".", help="Skill Package to validate before committing")
     commit.add_argument("--no-test", action="store_true", help="Skip golden tests before committing")
     commit.add_argument("--no-version-gate", action="store_true", help="Skip semantic diff versus version bump consistency check")
@@ -539,8 +686,8 @@ def _render_diff(
         lines = [
             "## Skill Diff",
             "",
-            f"- Baseline: `{old.name or '<unknown>'}@{old.version or '<unknown>'}`",
-            f"- Current: `{new.name or '<unknown>'}@{new.version or '<unknown>'}`",
+            f"- Baseline: `{_format_package_ref(old, old_source)}`",
+            f"- Current: `{_format_package_ref(new, new_source)}`",
             f"- Risk: `{result.risk}`",
             f"- Suggested version bump: `{result.suggested_bump}`",
             "",
@@ -574,8 +721,8 @@ def _render_diff(
 
     lines = [
         "Skill Diff",
-        f"Baseline: {old.name or '<unknown>'}@{old.version or '<unknown>'}",
-        f"Current: {new.name or '<unknown>'}@{new.version or '<unknown>'}",
+        f"Baseline: {_format_package_ref(old, old_source)}",
+        f"Current: {_format_package_ref(new, new_source)}",
         f"Risk: {result.risk}",
         f"Suggested version bump: {result.suggested_bump}",
         "",
@@ -598,6 +745,11 @@ def _render_diff(
             lines.append(f"--- {text_diff.kind}: {text_diff.name}")
             lines.extend(text_diff.lines)
     return "\n".join(lines) + "\n"
+
+
+def _format_package_ref(package, source: str | None = None) -> str:
+    ref = f"{package.name or '<unknown>'}@{package.version or '<unknown>'}"
+    return f"{ref} ({source})" if source else ref
 
 
 def _event_detail_lines(event) -> list[str]:
