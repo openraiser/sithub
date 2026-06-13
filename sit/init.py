@@ -112,11 +112,11 @@ jobs:
   validate-and-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - name: Install sit
-        run: python -m pip install git+https://github.com/OpenRaiser/SitHub.git
+        run: python -m pip install git+https://github.com/OpenRaiser/Sit.git
       - run: sit validate "$SIT_PACKAGE_DIR"
       - run: sit test "$SIT_PACKAGE_DIR"
       - name: Write SitHub summary
@@ -130,7 +130,7 @@ jobs:
             >> "$GITHUB_STEP_SUMMARY"
       - name: Upload SitHub artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: sithub-report
           path: ${{ env.SIT_ARTIFACT_DIR }}

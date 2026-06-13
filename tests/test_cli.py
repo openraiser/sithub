@@ -15,6 +15,14 @@ from sit.cli import main
 
 
 class CliTest(unittest.TestCase):
+    def test_package_declares_pep561_type_marker(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        pyproject = (root / "pyproject.toml").read_text(encoding="utf-8")
+
+        self.assertTrue((root / "sit" / "py.typed").exists())
+        self.assertIn("[tool.setuptools.package-data]", pyproject)
+        self.assertIn('sit = ["py.typed"]', pyproject)
+
     def test_status_validate_and_test_pass_for_minimal_package(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             package = _write_package(Path(tmp), version="0.1.0")
@@ -478,11 +486,12 @@ class CliTest(unittest.TestCase):
             self.assertTrue((package / "skill.yaml").exists())
             self.assertTrue((package / ".github" / "workflows" / "sit-ci.yaml").exists())
             workflow = (package / ".github" / "workflows" / "sit-ci.yaml").read_text(encoding="utf-8")
-            self.assertIn("python -m pip install git+https://github.com/OpenRaiser/SitHub.git", workflow)
+            self.assertIn("python -m pip install git+https://github.com/OpenRaiser/Sit.git", workflow)
             self.assertIn("SIT_PACKAGE_DIR", workflow)
             self.assertIn("--baseline-ref \"$SIT_BASELINE_REF\"", workflow)
             self.assertIn("--artifact-dir \"$SIT_ARTIFACT_DIR\"", workflow)
-            self.assertIn("actions/upload-artifact@v4", workflow)
+            self.assertIn("actions/checkout@v5", workflow)
+            self.assertIn("actions/upload-artifact@v6", workflow)
             self.assertIn("GITHUB_STEP_SUMMARY", workflow)
             self.assertEqual(validate_code, 0)
             self.assertIn("OK  schema.output JSON schema valid", validate_output)
@@ -704,12 +713,35 @@ class CliTest(unittest.TestCase):
             self.assertIn("SitHub Doctor", text_output)
             self.assertIn("OK git: Git repository detected", text_output)
             self.assertIn("OK github_remote: GitHub remote found", text_output)
+            self.assertIn("WARN git_hooks: sit pre-commit hook is not installed", text_output)
+            self.assertIn("sit install-hooks .", text_output)
             self.assertIn("OK github_actions: SitHub GitHub Actions workflow found", text_output)
             self.assertEqual(json_code, 0)
             payload = json.loads(json_output)
             self.assertEqual(payload["schema_version"], "sit.doctor.v1")
-            self.assertEqual(payload["status"], "pass")
+            self.assertEqual(payload["status"], "warn")
             self.assertEqual(payload["package"]["name"], "sample-skill")
+            hook_check = next(check for check in payload["checks"] if check["name"] == "git_hooks")
+            self.assertEqual(hook_check["status"], "warn")
+
+    def test_doctor_reports_installed_sit_hook(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            package = _write_package(Path(tmp) / "doctor-hook-skill", version="0.1.0")
+            _git(package, "init")
+            _git(package, "config", "user.email", "sit@example.test")
+            _git(package, "config", "user.name", "SIT Test")
+            _git(package, "add", ".")
+            _git(package, "commit", "-m", "feat: initial skill")
+            install_code, install_output = _run_cli_in(package, ["install-hooks", "."])
+
+            code, output = _run_cli_in(package, ["doctor", "--format", "json"])
+
+            self.assertEqual(install_code, 0, install_output)
+            self.assertEqual(code, 0, output)
+            payload = json.loads(output)
+            hook_check = next(check for check in payload["checks"] if check["name"] == "git_hooks")
+            self.assertEqual(hook_check["status"], "pass")
+            self.assertEqual(hook_check["message"], "sit pre-commit hook installed")
 
     def test_doctor_fails_without_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

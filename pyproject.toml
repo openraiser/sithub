@@ -44,10 +44,10 @@ mcp = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/OpenRaiser/SitHub"
-Documentation = "https://github.com/OpenRaiser/SitHub#readme"
-Repository = "https://github.com/OpenRaiser/SitHub"
-Issues = "https://github.com/OpenRaiser/SitHub/issues"
+Homepage = "https://github.com/OpenRaiser/Sit"
+Documentation = "https://github.com/OpenRaiser/Sit#readme"
+Repository = "https://github.com/OpenRaiser/Sit"
+Issues = "https://github.com/OpenRaiser/Sit/issues"
 
 [project.scripts]
 sit = "sit.cli:main"
@@ -55,6 +55,9 @@ sit-mcp-server = "sit.mcp_server:main"
 
 [tool.setuptools.packages.find]
 include = ["sit"]
+
+[tool.setuptools.package-data]
+sit = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
