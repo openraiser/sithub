@@ -82,10 +82,15 @@ def has_pack_errors(path: Path) -> list[str]:
         completed = subprocess.run(command, cwd=path, check=False, text=True, capture_output=True, timeout=10)
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return []
-    issues: list[str] = []
     combined = completed.stderr + completed.stdout
-    if "non-monotonic" in combined:
+    return parse_pack_issues(combined)
+
+
+def parse_pack_issues(output: str) -> list[str]:
+    """Parse git fsck output for known pack issues. Separated for testability."""
+    issues: list[str] = []
+    if "non-monotonic" in output:
         issues.append("Pack index corruption detected (non-monotonic index). Fix with: git repack -a -d")
-    if "._pack-" in combined:
+    if "._pack-" in output:
         issues.append("macOS resource fork files (._*) in pack directory. Fix with: find .git -name '._*' -delete && git repack -a -d")
     return issues

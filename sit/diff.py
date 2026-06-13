@@ -18,14 +18,17 @@ class DiffEvent:
     category: str
     changed: bool = False
     breaking: bool = False
+    additive: bool = False
     details: dict[str, Any] | None = None
 
     @property
     def severity(self) -> str:
         if self.breaking:
             return "breaking"
-        if self.changed:
+        if self.changed and not self.additive:
             return "changed"
+        if self.additive:
+            return "additive"
         return "info"
 
     def to_dict(self) -> dict[str, Any]:
@@ -34,6 +37,7 @@ class DiffEvent:
             "severity": self.severity,
             "changed": self.changed,
             "breaking": self.breaking,
+            "additive": self.additive,
             "message": self.message,
         }
         if self.details:
@@ -93,6 +97,7 @@ class PackageDiff:
         *,
         changed: bool = False,
         breaking: bool = False,
+        additive: bool = False,
         category: str | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
@@ -103,6 +108,7 @@ class PackageDiff:
                 category=category or _infer_category(message),
                 changed=changed or breaking,
                 breaking=breaking,
+                additive=additive,
                 details=details,
             )
         )
@@ -122,7 +128,11 @@ class PackageDiff:
         if self.breaking:
             return "major"
         if self.changed:
-            return "minor"
+            meaningful = [e for e in self.events if e.category not in {"package", "risk"}]
+            non_additive = any(e.changed and not e.additive for e in meaningful)
+            if non_additive:
+                return "minor"
+            return "patch"
         return "patch"
 
     def to_dict(
@@ -159,7 +169,7 @@ def diff_packages(old: SkillPackage, new: SkillPackage) -> PackageDiff:
     _diff_path_group(result, "prompt", old.prompt_paths(), new.prompt_paths(), compare_text=True, collect_text_diff=True)
     _diff_resource_groups(result, old, new)
     _diff_schema_group(result, old.schema_paths(), new.schema_paths())
-    _diff_path_group(result, "test", old.test_paths(), new.test_paths(), compare_text=True)
+    _diff_test_group(result, old.test_paths(), new.test_paths())
     _diff_golden_cases(result, old, new)
 
     if result.breaking:
@@ -219,7 +229,7 @@ def _diff_path_group(
     new_names = set(new_paths)
 
     for name in sorted(new_names - old_names):
-        result.add(f"{label.upper()} added {name}: {new_paths[name]}", changed=True)
+        result.add(f"{label.upper()} added {name}: {new_paths[name]}", changed=True, additive=True)
     for name in sorted(old_names - new_names):
         result.add(f"{label.upper()} removed {name}: {old_paths[name]}", changed=True)
 
@@ -242,6 +252,17 @@ def _diff_path_group(
             result.add(f"{label.upper()} changed {name}: {old_path.name} -> {new_path.name}{detail}", changed=True)
 
 
+def _diff_test_group(result: PackageDiff, old_paths: dict[str, Path], new_paths: dict[str, Path]) -> None:
+    old_non_golden = {name: path for name, path in old_paths.items() if name != "golden"}
+    new_non_golden = {name: path for name, path in new_paths.items() if name != "golden"}
+    _diff_path_group(result, "test", old_non_golden, new_non_golden, compare_text=True)
+
+    if "golden" in new_paths and "golden" not in old_paths:
+        result.add(f"TEST added golden: {new_paths['golden']}", changed=True, additive=True)
+    elif "golden" in old_paths and "golden" not in new_paths:
+        result.add(f"TEST removed golden: {old_paths['golden']}", changed=True)
+
+
 def _diff_resource_groups(result: PackageDiff, old: SkillPackage, new: SkillPackage) -> None:
     old_groups = old.resource_paths()
     new_groups = new.resource_paths()
@@ -255,7 +276,7 @@ def _diff_resource_group(result: PackageDiff, label: str, old_paths: dict[str, P
 
     for name in sorted(new_names - old_names):
         details = _resource_details(label, "added", None, new_paths[name])
-        result.add(_resource_message(label, "added", name), changed=True, category=label, details=details)
+        result.add(_resource_message(label, "added", name), changed=True, additive=True, category=label, details=details)
     for name in sorted(old_names - new_names):
         details = _resource_details(label, "removed", old_paths[name], None)
         result.add(_resource_message(label, "removed", name), changed=True, category=label, details=details)
@@ -667,7 +688,7 @@ def _diff_golden_cases(result: PackageDiff, old: SkillPackage, new: SkillPackage
     new_case_ids = set(new_cases)
 
     for case_id in sorted(new_case_ids - old_case_ids):
-        result.add(f"GOLDEN case added {case_id}", changed=True)
+        result.add(f"GOLDEN case added {case_id}", changed=True, additive=True)
     for case_id in sorted(old_case_ids - new_case_ids):
         result.add(f"GOLDEN case removed {case_id}", changed=True)
     for case_id in sorted(old_case_ids & new_case_ids):

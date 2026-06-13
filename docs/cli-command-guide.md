@@ -16,7 +16,8 @@ sit 负责理解 Skill：结构是否完整、schema 有没有破坏、golden te
 | `sit init` | 从零创建一个标准 Skill Package | `sit init paper-reader --path ./paper-reader` |
 | `sit info` | 查看一个 Skill 项目的完整状态快照 | `sit info` |
 | `sit doctor` | 检查项目是否已经准备好进入 SitHub/GitHub 协作闭环 | `sit doctor` |
-| `sit status` | 简单查看 manifest、prompt/schema/test/report 文件状态 | `sit status` |
+| `sit status` | 查看 manifest、文件状态和当前工作区 gate preview | `sit status` |
+| `sit install-hooks` | 安装 Git pre-commit hook，防止直接 `git commit` 绕过 sit 检查 | `sit install-hooks .` |
 
 典型接入：
 
@@ -93,6 +94,8 @@ runner 命令支持这些占位符：
 |---|---|---|
 | `sit diff old new` | 比较两个 Skill Package 的语义变化 | `sit diff v0.1.0 v0.2.0` |
 | `sit diff main..HEAD` | 比较 Git 分支/提交范围里的 Skill 变化 | `sit diff main..HEAD` |
+| `sit diff HEAD..WORKTREE` | 比较当前工作区未提交 Skill 变化 | `sit diff HEAD..WORKTREE` |
+| `sit diff --staged` | 只比较 Git 暂存区里将被提交的 Skill 变化 | `sit diff --staged` |
 | `sit report` | 生成 validate/test/report 汇总 | `sit report` |
 | `sit report --format html` | 生成可视化 HTML 报告 | `sit report --format html --output reports/report.html` |
 
@@ -100,6 +103,7 @@ runner 命令支持这些占位符：
 
 ```bash
 sit diff main..HEAD
+sit diff HEAD..WORKTREE
 ```
 
 它不是普通文本 diff，而是输出 Skill 语义影响，例如：
@@ -129,16 +133,30 @@ sit report --compare main..HEAD --format html --output reports/pr-loop.html
 
 | 命令 | 含义 | 例子 |
 |---|---|---|
+| `sit review` | 生成可直接贴到 PR 的 Skill 评审 comment | `sit review main..HEAD` |
 | `sit pr-summary` | 生成 PR 评审摘要 | `sit pr-summary main..HEAD` |
 | `sit ci-summary` | 给 GitHub Actions 生成 Summary 和 artifacts | `sit ci-summary --compare origin/main..HEAD` |
 
 示例：
 
 ```bash
+sit review main..HEAD
 sit pr-summary main..HEAD
 ```
 
-输出会接近一个 PR 说明：
+`sit review` 输出更接近一个 PR bot comment：
+
+```text
+SitHub Skill Review
+Status: needs-review
+Recommendation: Review semantic changes before merge.
+Validation: pass
+Golden tests: pass
+Diff risk: review-required
+Suggested bump: minor
+```
+
+`sit pr-summary` 输出更接近结构化 PR 说明：
 
 ```text
 Skill Change Summary
@@ -196,6 +214,10 @@ sit release major
 - 写 `CHANGELOG.md`
 - 生成 release report
 - 创建 Git tag
+
+如果你已经用 `sit commit --bump minor|major` 把语义改动和版本号一起提交进 `HEAD`，
+再运行 `sit release minor` 默认会被阻止，避免空 release 二次 bump。确实需要额外空
+发布时，显式加 `--allow-empty`。
 
 ## 6. Git 透传命令
 

@@ -13,6 +13,7 @@ Example::
     info = s.info()
     test = s.test()
     diff = s.diff("./baseline-package")
+    review = s.review("./baseline-package")
     pr = s.pr_summary("./baseline-package")
     report = s.report(compare="./baseline-package")
 """
@@ -30,6 +31,7 @@ from .info import build_info_payload
 from .package import SkillPackage, load_package
 from .release import release_package
 from .report import build_report_payload
+from .review import build_skill_review_payload
 from .summary import build_pr_summary_payload
 from .validate import build_test_payload, validate_package
 
@@ -118,6 +120,23 @@ class Sit:
             current_source=current_source,
         )
 
+    def review(
+        self,
+        baseline: str | Path,
+        *,
+        baseline_source: str | None = None,
+        current_source: str | None = None,
+    ) -> dict[str, Any]:
+        """Build PR-ready review payload (``sit.review.v1`` contract)."""
+        old = self._load_other(baseline)
+        new = self._load()
+        return build_skill_review_payload(
+            old,
+            new,
+            baseline_source=baseline_source,
+            current_source=current_source,
+        )
+
     def report(
         self,
         *,
@@ -148,6 +167,7 @@ class Sit:
         no_git_tag: bool = False,
         no_version_gate: bool = False,
         bundle: bool = False,
+        allow_empty: bool = False,
     ) -> dict[str, Any]:
         """Create a release.  Returns a summary dict."""
         message = release_package(
@@ -156,6 +176,7 @@ class Sit:
             no_git_tag=no_git_tag,
             no_version_gate=no_version_gate,
             bundle=bundle,
+            allow_empty=allow_empty,
         )
         return {"message": message}
 
@@ -183,6 +204,11 @@ def diff(old: str | Path, new: str | Path, **kwargs: Any) -> dict[str, Any]:
 def pr_summary(baseline: str | Path, current: str | Path, **kwargs: Any) -> dict[str, Any]:
     """Module-level convenience: ``sit.sdk.pr_summary(baseline, current)``."""
     return Sit(current).pr_summary(baseline, **kwargs)
+
+
+def review(baseline: str | Path, current: str | Path, **kwargs: Any) -> dict[str, Any]:
+    """Module-level convenience: ``sit.sdk.review(baseline, current)``."""
+    return Sit(current).review(baseline, **kwargs)
 
 
 def report(package_path: str | Path, **kwargs: Any) -> dict[str, Any]:

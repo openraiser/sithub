@@ -1,8 +1,8 @@
 """Agent auto-discovery configuration generator.
 
 Generates MCP server config and agent rules so that LLM agents
-(Claude Code, Cursor, etc.) can automatically discover and use sit
-within a skill package.
+(Codex, Claude Code, Cursor, etc.) can automatically discover and use
+sit within a skill package.
 
 Usage::
 
@@ -43,7 +43,7 @@ def setup_agent_config(
 
     Creates:
     - ``.mcp.json`` — MCP server config (Claude Code / Cursor format)
-    - ``AGENTS.md`` — agent rules for this skill package
+    - ``AGENTS.md`` — agent rules for Codex and other agent editors
     """
     result = AgentSetupResult(root=package_root)
     _write_mcp_json(package_root / ".mcp.json", result, force=force)
@@ -73,11 +73,11 @@ def render_agent_setup_text(result: AgentSetupResult) -> str:
         lines.extend([
             "",
             "Agent auto-discovery is now configured.",
-            "Your agent (Claude Code, Cursor, etc.) will detect sit automatically.",
+            "Codex will read AGENTS.md; Claude Code, Cursor, and other MCP-aware editors can use .mcp.json.",
             "",
             "Next steps:",
-            "  1. Restart your agent editor to pick up the new MCP config.",
-            "  2. Ask your agent: 'What skills are available?' or 'Run sit validate'.",
+            "  1. Restart your agent editor if it needs to reload project instructions or MCP config.",
+            "  2. Ask your agent to change the skill; after edits it should run sit validate/test/diff.",
         ])
     return "\n".join(lines) + "\n"
 
@@ -128,11 +128,26 @@ versioning, validation, testing, and diff for prompts, schemas, and golden tests
 
 ## When working in this package, always:
 
-1. **Before committing**: run `sit validate` and `sit test` to check package integrity.
-2. **After changes**: run `sit diff` to see what changed semantically.
-3. **For PRs**: run `sit pr-summary` to generate a structured change summary.
-4. **Read JSON output**: use `--format json` for machine-readable output.
+1. **Detect changed files**: after edits, inspect `git status --short`.
+2. **Run checks for Skill changes**: if `skill.yaml`, `prompts/`, `schemas/`,
+   `tests/`, `scripts/`, `assets/`, `references/`, or `deps.yaml` changed, run
+   `sit validate` and `sit test`.
+3. **Review semantic impact**: for uncommitted changes in a Git work tree, run
+   `sit diff HEAD..WORKTREE`; for committed branches, run `sit diff main..HEAD`
+   or the relevant range.
+4. **Commit through sit**: use `sit commit` instead of `git commit` so validation,
+   golden tests, dependency warnings, and version gates run before the commit.
+5. **For PRs**: run `sit review` to generate a PR-ready review comment, and
+   `sit pr-summary` when a structured change summary is needed.
+6. **Read JSON output**: use `--format json` for machine-readable output.
    Schema definitions are at `docs/schemas/` in the sit repository.
+
+## Codex workflow
+
+Codex reads this `AGENTS.md` automatically when working in this directory. Treat
+the rules above as the default loop: modify files, detect changes, run the
+appropriate `sit` commands, and report validation/test/diff results before
+finishing.
 
 ## Key commands
 
@@ -141,7 +156,9 @@ versioning, validation, testing, and diff for prompts, schemas, and golden tests
 | `sit info` | Package metadata + git state |
 | `sit validate` | Check manifest, paths, schemas |
 | `sit test` | Run golden expected-vs-schema tests |
-| `sit diff` | Semantic diff of skill package |
+| `sit diff HEAD..WORKTREE` | Semantic diff of uncommitted working-tree changes |
+| `sit diff main..HEAD` | Semantic diff of committed branch changes |
+| `sit review` | Generate a PR-ready Skill review comment |
 | `sit pr-summary` | Generate PR summary (Markdown or JSON) |
 | `sit report` | Full validation report |
 | `sit release` | Bump version and create release |
@@ -149,6 +166,7 @@ versioning, validation, testing, and diff for prompts, schemas, and golden tests
 ## JSON output contracts
 
 - `sit info --format json` → `sit.info.v1`
+- `sit review --format json` → `sit.review.v1`
 - `sit pr-summary --format json` → `sit.pr_summary.v1`
 - `sit test --format json` → `sit.test.v1`
 - `sit report --format json` → `sit.report.v1`
@@ -156,8 +174,10 @@ versioning, validation, testing, and diff for prompts, schemas, and golden tests
 ## MCP integration
 
 If your editor supports MCP (Model Context Protocol), the `.mcp.json` file
-in this directory configures the `sit` MCP server automatically. You can call
-sit tools directly via MCP without shell commands.
+in this directory configures the `sit` MCP server automatically. Claude Code,
+Cursor, and other MCP-aware editors can call sit tools directly via MCP without
+shell commands. Codex should use this `AGENTS.md` workflow even when MCP is not
+configured.
 
 ## Package structure
 

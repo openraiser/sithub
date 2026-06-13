@@ -21,3 +21,12 @@ node_modules/
 reports/
 OSS_HUB.md
 experiments/
+paper/
+output/
+examples/
+docs/internal/
+.playwright-cli/
+docs/assets/
+docs/sit-explained.html
+docs/schemas/sit.review.v1.md
+sit-showcase-demo.html

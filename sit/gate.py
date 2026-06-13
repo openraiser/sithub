@@ -8,6 +8,7 @@ import subprocess
 import tarfile
 import tempfile
 from typing import Iterator
+import hashlib
 
 from .diff import PackageDiff, diff_packages
 from .errors import SitError
@@ -15,6 +16,8 @@ from .git import git_output, git_root
 from .package import SkillPackage, load_package
 
 BUMP_ORDER = {"none": 0, "patch": 1, "minor": 2, "major": 3}
+
+_gate_cache: dict[str, VersionGateResult] = {}
 
 
 @dataclass(frozen=True)
@@ -33,9 +36,13 @@ class VersionGateResult:
 
 
 def check_version_gate_against_head(package: SkillPackage) -> VersionGateResult:
+    cache_key = _gate_cache_key(package)
+    if cache_key and cache_key in _gate_cache:
+        return _gate_cache[cache_key]
+
     with load_head_package(package) as baseline:
         if baseline is None:
-            return VersionGateResult(
+            result = VersionGateResult(
                 checked=False,
                 ok=True,
                 required_bump="none",
@@ -45,7 +52,57 @@ def check_version_gate_against_head(package: SkillPackage) -> VersionGateResult:
                 diff=None,
                 message="version gate skipped: no Git HEAD baseline",
             )
-        return check_version_gate(baseline, package)
+        else:
+            result = check_version_gate(baseline, package)
+
+    if cache_key:
+        _gate_cache[cache_key] = result
+    return result
+
+
+def invalidate_gate_cache() -> None:
+    """Clear the gate result cache (e.g., after version bump)."""
+    _gate_cache.clear()
+
+
+def _gate_cache_key(package: SkillPackage) -> str | None:
+    """Build a cache key from HEAD and semantic package file contents."""
+    try:
+        head = git_output(["rev-parse", "HEAD"], cwd=package.root)
+    except SitError:
+        return None
+    digest = hashlib.sha256()
+    digest.update(str(package.root).encode())
+    digest.update(b"\0")
+    digest.update(head.encode())
+    for path in _semantic_cache_paths(package):
+        digest.update(b"\0")
+        digest.update(_cache_path_label(package, path).encode(errors="replace"))
+        digest.update(b"\0")
+        if path.exists() and path.is_file():
+            digest.update(path.read_bytes())
+        else:
+            digest.update(b"<missing>")
+    return digest.hexdigest()
+
+
+def _semantic_cache_paths(package: SkillPackage) -> list[Path]:
+    paths: set[Path] = {package.manifest_path}
+    for group in (
+        package.prompt_paths(),
+        package.schema_paths(),
+        package.test_paths(),
+        *package.resource_paths().values(),
+    ):
+        paths.update(group.values())
+    return sorted((path.resolve() for path in paths), key=lambda item: item.as_posix())
+
+
+def _cache_path_label(package: SkillPackage, path: Path) -> str:
+    try:
+        return path.relative_to(package.root).as_posix()
+    except ValueError:
+        return path.as_posix()
 
 
 def check_release_gate_against_head(package: SkillPackage, requested_bump: str) -> VersionGateResult:
@@ -140,8 +197,12 @@ def required_bump_for_gate(diff: PackageDiff) -> str:
     ]
     if any(event.breaking for event in meaningful_events):
         return "major"
-    if any(event.changed for event in meaningful_events):
+    non_additive = [e for e in meaningful_events if e.changed and not e.additive]
+    if non_additive:
         return "minor"
+    additive_only = [e for e in meaningful_events if e.changed and e.additive]
+    if additive_only:
+        return "patch"
     return "none"
 
 

@@ -30,6 +30,37 @@ class CliTest(unittest.TestCase):
             self.assertEqual(test_code, 0)
             self.assertIn("SUMMARY 1/1 golden cases passed", test_output)
 
+    def test_status_shows_gate_preview_for_worktree_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            package = _write_package(Path(tmp) / "status-skill", version="0.1.0")
+            _git(package, "init")
+            _git(package, "config", "user.email", "sit@example.test")
+            _git(package, "config", "user.name", "SIT Test")
+            _git(package, "add", ".")
+            _git(package, "commit", "-m", "feat: initial skill")
+            (package / "prompts" / "extraction.md").write_text("Extract with care.", encoding="utf-8")
+
+            code, output = _run_cli(["status", str(package)])
+
+            self.assertEqual(code, 0)
+            self.assertIn("Gate preview:", output)
+            self.assertIn("block: required=minor", output)
+
+    def test_verbose_status_shows_gate_message(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            package = _write_package(Path(tmp) / "verbose-status-skill", version="0.1.0")
+            _git(package, "init")
+            _git(package, "config", "user.email", "sit@example.test")
+            _git(package, "config", "user.name", "SIT Test")
+            _git(package, "add", ".")
+            _git(package, "commit", "-m", "feat: initial skill")
+            (package / "prompts" / "extraction.md").write_text("Extract with care.", encoding="utf-8")
+
+            code, output = _run_cli(["--verbose", "status", str(package)])
+
+            self.assertEqual(code, 0)
+            self.assertIn("message: commit version gate blocked", output)
+
     def test_diff_reports_schema_and_prompt_changes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -47,6 +78,27 @@ class CliTest(unittest.TestCase):
             self.assertIn("PROMPT changed extraction", output)
             self.assertIn("SCHEMA output property added confidence (required)", output)
             self.assertIn("RISK breaking-change", output)
+
+    def test_diff_reports_non_golden_test_content_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old = _write_package(root / "old", version="0.1.0")
+            new = _write_package(root / "new", version="0.1.0")
+            for package, content in ((old, "runner v1\n"), (new, "runner v2\n")):
+                manifest = package / "skill.yaml"
+                manifest.write_text(
+                    manifest.read_text(encoding="utf-8").replace(
+                        "  golden: tests/golden.jsonl\n",
+                        "  golden: tests/golden.jsonl\n  runner: tests/runner.txt\n",
+                    ),
+                    encoding="utf-8",
+                )
+                (package / "tests" / "runner.txt").write_text(content, encoding="utf-8")
+
+            code, output = _run_cli(["diff", str(old), str(new)])
+
+            self.assertEqual(code, 0)
+            self.assertIn("TEST changed runner", output)
 
     def test_diff_reports_resource_changes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -242,6 +294,29 @@ class CliTest(unittest.TestCase):
             self.assertEqual(summary_code, 0)
             self.assertIn("### Prompt/Reference Text Summary", summary_output)
             self.assertIn("PROMPT summary extraction", summary_output)
+
+    def test_git_range_can_compare_head_to_worktree(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            package = _write_package(Path(tmp) / "worktree-skill", version="0.1.0")
+            _git(package, "init")
+            _git(package, "config", "user.email", "sit@example.test")
+            _git(package, "config", "user.name", "SIT Test")
+            _git(package, "add", ".")
+            _git(package, "commit", "-m", "feat: initial skill")
+            (package / "prompts" / "extraction.md").write_text(
+                "Extract the answer and cite evidence.",
+                encoding="utf-8",
+            )
+
+            diff_code, diff_output = _run_cli_in(package, ["diff", "HEAD..WORKTREE"])
+            report_code, report_output = _run_cli_in(package, ["report", ".", "--compare", "HEAD..WORKTREE"])
+
+            self.assertEqual(diff_code, 0)
+            self.assertIn("PROMPT changed extraction", diff_output)
+            self.assertIn("Baseline: sample-skill@0.1.0 (HEAD)", diff_output)
+            self.assertIn("Current: sample-skill@0.1.0 (WORKTREE)", diff_output)
+            self.assertEqual(report_code, 0)
+            self.assertIn("PROMPT changed extraction", report_output)
 
     def test_report_writes_markdown(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -453,6 +528,72 @@ class CliTest(unittest.TestCase):
             self.assertEqual(text_code, 0)
             self.assertIn("Suggested version bump: major", text_output)
             self.assertIn("Semantic Diff:", text_output)
+
+    def test_review_outputs_pr_ready_markdown(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old = _write_package(root / "old", version="0.1.0")
+            new = _write_package(
+                root / "new",
+                version="0.2.0",
+                prompt="Extract the answer and cite evidence.",
+                extra_required={"confidence": {"type": "string"}},
+            )
+
+            code, output = _run_cli(["review", str(old), str(new)])
+
+            self.assertEqual(code, 0)
+            self.assertIn("## SitHub Skill Review", output)
+            self.assertIn("Status: **needs-maintainer-review**", output)
+            self.assertIn("Recommendation: **Require maintainer approval and a major version bump before merge.**", output)
+            self.assertIn("| Diff risk | **breaking-change** |", output)
+            self.assertIn("| Suggested bump | `major` |", output)
+            self.assertIn("- `prompt`: 1 event(s)", output)
+            self.assertIn("- `schema`: 2 event(s)", output)
+            self.assertIn("SCHEMA output property added confidence (required)", output)
+            self.assertIn("sit validate", output)
+            self.assertIn("sit test", output)
+            self.assertIn("sit diff", output)
+
+    def test_review_supports_json_and_output_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old = _write_package(root / "old", version="0.1.0")
+            new = _write_package(root / "new", version="0.2.0", extra_required={"confidence": {"type": "string"}})
+            output_path = root / "review.md"
+
+            json_code, json_output = _run_cli(["review", str(old), str(new), "--format", "json"])
+            file_code, file_output = _run_cli(["review", str(old), str(new), "--output", str(output_path)])
+
+            self.assertEqual(json_code, 0)
+            payload = json.loads(json_output)
+            self.assertEqual(payload["schema_version"], "sit.review.v1")
+            self.assertEqual(payload["review"]["status"], "needs-maintainer-review")
+            self.assertGreaterEqual(payload["artifact_summary"]["total_events"], 1)
+            categories = {item["category"]: item["count"] for item in payload["artifact_summary"]["categories"]}
+            self.assertEqual(categories["schema"], 2)
+            self.assertEqual(file_code, 0)
+            self.assertIn("Wrote Skill review:", file_output)
+            review = output_path.read_text(encoding="utf-8")
+            self.assertIn("## SitHub Skill Review", review)
+            self.assertIn("Status: **needs-maintainer-review**", review)
+
+    def test_review_is_available_through_sdk_and_tool_schema(self) -> None:
+        from sit.sdk import Sit
+        from sit.tool_use import get_tool
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old = _write_package(root / "old", version="0.1.0")
+            new = _write_package(root / "new", version="0.2.0", extra_required={"confidence": {"type": "string"}})
+
+            payload = Sit(new).review(old)
+            tool = get_tool("sit_review")
+
+            self.assertEqual(payload["schema_version"], "sit.review.v1")
+            self.assertEqual(payload["review"]["status"], "needs-maintainer-review")
+            self.assertEqual(tool["name"], "sit_review")
+            self.assertEqual(tool["parameters"]["required"], ["baseline_path", "current_path"])
 
     def test_manifest_status_validates_and_diff_reports_lifecycle_changes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -733,6 +874,61 @@ dependencies:
             self.assertIn("SUMMARY 1/1 golden cases passed", test_output)
             self.assertEqual(doctor_code, 0)
             self.assertIn("OK github_remote: GitHub remote found", doctor_output)
+
+    def test_onboard_agent_generates_codex_instructions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _write_package(Path(tmp) / "agent-skill", version="0.1.0")
+
+            code, output = _run_cli(["onboard", "--agent", str(root)])
+            rerun_code, rerun_output = _run_cli(["onboard", "--agent", str(root)])
+            json_code, json_output = _run_cli(["onboard", "--agent", "--force", "--format", "json", str(root)])
+
+            self.assertEqual(code, 0)
+            self.assertIn("Codex will read AGENTS.md", output)
+            self.assertTrue((root / ".mcp.json").exists())
+            agents_md = (root / "AGENTS.md").read_text(encoding="utf-8")
+            self.assertIn("## Codex workflow", agents_md)
+            self.assertIn("git status --short", agents_md)
+            self.assertIn("sit diff HEAD..WORKTREE", agents_md)
+            self.assertIn("use `sit commit` instead of `git commit`", agents_md)
+            self.assertEqual(rerun_code, 0)
+            self.assertIn("Skipped (already exists):", rerun_output)
+            self.assertEqual(json_code, 0)
+            payload = json.loads(json_output)
+            self.assertEqual(payload["schema_version"], "sit.agent_setup.v1")
+            self.assertIn("AGENTS.md", payload["updated"])
+
+    def test_install_hooks_writes_pre_commit_hook(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            package = _write_package(Path(tmp) / "hook-skill", version="0.1.0")
+            _git(package, "init")
+
+            code, output = _run_cli(["install-hooks", str(package)])
+
+            self.assertEqual(code, 0)
+            self.assertIn("Installed sit pre-commit hook", output)
+            hook = package / ".git" / "hooks" / "pre-commit"
+            self.assertTrue(hook.exists())
+            hook_text = hook.read_text(encoding="utf-8")
+            self.assertIn("Generated by sit install-hooks", hook_text)
+            self.assertIn("sit _hook-pre-commit", hook_text)
+
+    def test_hook_pre_commit_blocks_unbumped_semantic_change(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            package = _write_package(Path(tmp) / "hook-block-skill", version="0.1.0")
+            _git(package, "init")
+            _git(package, "config", "user.email", "sit@example.test")
+            _git(package, "config", "user.name", "SIT Test")
+            _git(package, "add", ".")
+            _git(package, "commit", "-m", "feat: initial skill")
+            (package / "prompts" / "extraction.md").write_text("Extract with care.", encoding="utf-8")
+            _git(package, "add", ".")
+
+            code, stdout, stderr = _run_cli_capture(["_hook-pre-commit", "--package", str(package)], cwd=package)
+
+            self.assertEqual(code, 2)
+            self.assertIn("commit version gate blocked", stdout)
+            self.assertIn("pre-commit blocked", stderr)
 
     def test_onboard_does_not_overwrite_existing_files_without_force(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1091,6 +1287,17 @@ dependencies:
             self.assertIn("version: 0.2.0", manifest)
             self.assertTrue((package / "reports" / "release-v0.2.0.md").exists())
 
+    def test_release_quiet_suppresses_success_message(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            package = _write_package(Path(tmp) / "quiet-release-skill", version="0.1.0")
+
+            code, stdout, stderr = _run_cli_capture(["--quiet", "release", "patch", str(package), "--no-git-tag"])
+
+            self.assertEqual(code, 0)
+            self.assertEqual(stdout, "")
+            self.assertEqual(stderr, "")
+            self.assertIn("version: 0.1.1", (package / "skill.yaml").read_text(encoding="utf-8"))
+
     def test_release_bundle_is_reproducible_package_archive(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1257,6 +1464,54 @@ dependencies:
             self.assertIn("Fix: update skill.yaml to a major bump or run `sit release major`", stderr)
             self.assertIn("version: 0.2.0", (package / "skill.yaml").read_text(encoding="utf-8"))
 
+    def test_release_blocks_empty_release_after_commit_bump(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            package = _write_package(Path(tmp) / "already-bumped-skill", version="0.1.0")
+            _git(package, "init")
+            _git(package, "config", "user.email", "sit@example.test")
+            _git(package, "config", "user.name", "SIT Test")
+            _git(package, "add", ".")
+            _git(package, "commit", "-m", "feat: initial skill")
+            (package / "prompts" / "extraction.md").write_text("Extract with care.", encoding="utf-8")
+            _git(package, "add", ".")
+            commit_code, _commit_stdout, _commit_stderr = _run_cli_capture(
+                ["commit", "-m", "feat: update prompt", "--bump", "minor"],
+                cwd=package,
+            )
+
+            release_code, _release_stdout, release_stderr = _run_cli_capture(
+                ["release", "minor", str(package), "--no-git-tag"]
+            )
+
+            self.assertEqual(commit_code, 0)
+            self.assertEqual(release_code, 2)
+            self.assertIn("release blocked: HEAD already contains semantic changes", release_stderr)
+            self.assertIn("version: 0.2.0", (package / "skill.yaml").read_text(encoding="utf-8"))
+
+    def test_release_allow_empty_overrides_commit_bump_boundary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            package = _write_package(Path(tmp) / "allow-empty-release-skill", version="0.1.0")
+            _git(package, "init")
+            _git(package, "config", "user.email", "sit@example.test")
+            _git(package, "config", "user.name", "SIT Test")
+            _git(package, "add", ".")
+            _git(package, "commit", "-m", "feat: initial skill")
+            (package / "prompts" / "extraction.md").write_text("Extract with care.", encoding="utf-8")
+            _git(package, "add", ".")
+            commit_code, _commit_stdout, _commit_stderr = _run_cli_capture(
+                ["commit", "-m", "feat: update prompt", "--bump", "minor"],
+                cwd=package,
+            )
+
+            release_code, release_stdout, release_stderr = _run_cli_capture(
+                ["release", "patch", str(package), "--no-git-tag", "--allow-empty"]
+            )
+
+            self.assertEqual(commit_code, 0)
+            self.assertEqual(release_code, 0)
+            self.assertEqual(release_stderr, "")
+            self.assertIn("Released sample-skill@0.2.1", release_stdout)
+
     def test_release_tag_points_to_release_commit(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             package = _write_package(Path(tmp) / "tagged-release-skill", version="0.1.0")
@@ -1325,6 +1580,271 @@ dependencies:
             self.assertIn("OK  version: 1.0.0", validate_output)
             self.assertEqual(release_code, 0)
             self.assertIn("Released sample-skill@1.0.1", release_output)
+
+    def test_full_git_passthrough_routes_any_git_subcommand(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            package = _write_package(Path(tmp) / "passthrough-skill", version="0.1.0")
+            _git(package, "init")
+            _git(package, "config", "user.email", "sit@example.test")
+            _git(package, "config", "user.name", "SIT Test")
+            _git(package, "add", ".")
+            _git(package, "commit", "-m", "feat: initial")
+
+            # Test commands beyond the original 6 passthrough set
+            status_code, status_output = _run_cli_in(package, ["status"])
+            # 'sit status' is a sit subcommand, not git passthrough
+            self.assertEqual(status_code, 0)
+            self.assertIn("Package: sample-skill", status_output)
+
+            # 'sit stash' should route to git stash (passthrough)
+            stash_code, stash_output = _run_cli_in(package, ["stash", "list"])
+            self.assertEqual(stash_code, 0)
+
+            # 'sit tag' should route to git tag
+            tag_code, tag_output = _run_cli_in(package, ["tag", "--list"])
+            self.assertEqual(tag_code, 0)
+
+            # 'sit remote' should route to git remote
+            remote_code, remote_output = _run_cli_in(package, ["remote", "-v"])
+            self.assertEqual(remote_code, 0)
+
+    def test_git_passthrough_failure_prints_sit_hint(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            code, stdout, stderr = _run_cli_capture(["push"], cwd=Path(tmp))
+
+            self.assertNotEqual(code, 0)
+            self.assertIn("sit: hint:", stderr)
+            self.assertIn("sit status", stderr)
+
+    def test_quiet_suppresses_passthrough_failure_hint(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            code, stdout, stderr = _run_cli_capture(["--quiet", "push"], cwd=Path(tmp))
+
+            self.assertNotEqual(code, 0)
+            self.assertNotIn("sit: hint:", stderr)
+
+    def test_add_prints_lightweight_semantic_hint(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            package = _write_package(Path(tmp) / "add-hint-skill", version="0.1.0")
+            _git(package, "init")
+            _git(package, "config", "user.email", "sit@example.test")
+            _git(package, "config", "user.name", "SIT Test")
+            _git(package, "add", ".")
+            _git(package, "commit", "-m", "feat: initial skill")
+            (package / "prompts" / "extraction.md").write_text("Extract with care.", encoding="utf-8")
+
+            code, output = _run_cli_in(package, ["add", "prompts/extraction.md"])
+
+            self.assertEqual(code, 0)
+            self.assertIn("semantic path(s)", output)
+            self.assertIn("run `sit diff --staged`", output)
+
+    def test_help_shows_sit_help_not_git_help(self) -> None:
+        code, output = _run_cli(["help"])
+
+        self.assertEqual(code, 0)
+        self.assertIn("Skill Iteration Toolkit CLI", output)
+        self.assertIn("ci-summary", output)
+
+    def test_noise_filtering_suppresses_non_monotonic_index(self) -> None:
+        from sit.git import _filter_stderr
+
+        noisy = "error: non-monotonic index pack-abc123.idx\nfatal: actual error\n"
+        filtered = _filter_stderr(noisy)
+        self.assertNotIn("non-monotonic", filtered)
+        self.assertIn("fatal: actual error", filtered)
+
+        clean = "Everything up-to-date"
+        self.assertEqual(_filter_stderr(clean), clean)
+        self.assertEqual(_filter_stderr(""), "")
+
+    def test_parse_pack_issues_detects_corruption(self) -> None:
+        from sit.git import parse_pack_issues
+
+        output = "error: non-monotonic index pack-abc.idx\n"
+        issues = parse_pack_issues(output)
+        self.assertEqual(len(issues), 1)
+        self.assertIn("non-monotonic", issues[0])
+
+        output_fork = "warning: ._pack-abc in .git/objects\n"
+        issues_fork = parse_pack_issues(output_fork)
+        self.assertEqual(len(issues_fork), 1)
+        self.assertIn("macOS resource fork", issues_fork[0])
+
+        self.assertEqual(parse_pack_issues(""), [])
+
+    def test_additive_changes_require_only_patch_bump(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old = _write_package(root / "old", version="0.1.0")
+            new = _write_package(root / "new", version="0.1.0")
+            # Add a new golden test case (additive-only change)
+            records = [
+                {"case_id": "case-1", "input": {"text": "hello"}, "expected": {"answer": "ok"}},
+                {"case_id": "case-2", "input": {"text": "world"}, "expected": {"answer": "yes"}},
+            ]
+            (new / "tests" / "golden.jsonl").write_text(
+                "\n".join(json.dumps(r) for r in records) + "\n", encoding="utf-8"
+            )
+
+            json_code, json_output = _run_cli(["diff", str(old), str(new), "--format", "json"])
+
+            self.assertEqual(json_code, 0)
+            payload = json.loads(json_output)
+            self.assertEqual(payload["suggested_bump"], "patch")
+            golden_events = [e for e in payload["events"] if "GOLDEN" in e["message"] and "added" in e["message"]]
+            self.assertTrue(golden_events)
+            self.assertTrue(golden_events[0]["additive"])
+
+    def test_commit_bump_auto_bumps_and_commits(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            package = _write_package(Path(tmp) / "bump-skill", version="0.1.0")
+            _git(package, "init")
+            _git(package, "config", "user.email", "sit@example.test")
+            _git(package, "config", "user.name", "SIT Test")
+            _git(package, "add", ".")
+            _git(package, "commit", "-m", "feat: initial skill")
+            (package / "prompts" / "extraction.md").write_text("Extract with care.", encoding="utf-8")
+            _git(package, "add", ".")
+
+            code, stdout, stderr = _run_cli_capture(["commit", "-m", "feat: update prompt", "--bump", "minor"], cwd=package)
+
+            self.assertEqual(code, 0)
+            self.assertIn("auto-bumped version: 0.1.0 -> 0.2.0", stdout)
+            self.assertIn("committed", stdout)
+            manifest = (package / "skill.yaml").read_text(encoding="utf-8")
+            self.assertIn("version: 0.2.0", manifest)
+
+    def test_gate_cache_tracks_prompt_content_changes(self) -> None:
+        from sit.gate import check_version_gate_against_head, invalidate_gate_cache
+        from sit.package import load_package
+
+        with tempfile.TemporaryDirectory() as tmp:
+            package = _write_package(Path(tmp) / "cache-skill", version="0.1.0")
+            _git(package, "init")
+            _git(package, "config", "user.email", "sit@example.test")
+            _git(package, "config", "user.name", "SIT Test")
+            _git(package, "add", ".")
+            _git(package, "commit", "-m", "feat: initial skill")
+            invalidate_gate_cache()
+
+            first = check_version_gate_against_head(load_package(package))
+            (package / "prompts" / "extraction.md").write_text("Extract with new behavior.", encoding="utf-8")
+            second = check_version_gate_against_head(load_package(package))
+
+            self.assertEqual(first.required_bump, "none")
+            self.assertEqual(second.required_bump, "minor")
+
+    def test_commit_smart_skip_skips_tests_for_docs_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            package = _write_package(Path(tmp) / "skip-skill", version="0.1.0")
+            _git(package, "init")
+            _git(package, "config", "user.email", "sit@example.test")
+            _git(package, "config", "user.name", "SIT Test")
+            _git(package, "add", ".")
+            _git(package, "commit", "-m", "feat: initial skill")
+            (package / "docs").mkdir()
+            (package / "docs" / "note.md").write_text("Note.\n", encoding="utf-8")
+            _git(package, "add", ".")
+
+            code, stdout, stderr = _run_cli_capture(["commit", "-m", "docs: add note"], cwd=package)
+
+            self.assertEqual(code, 0)
+            self.assertIn("golden tests: skipped", stdout)
+
+    def test_diff_staged_compares_index_not_worktree(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            package = _write_package(Path(tmp) / "staged-skill", version="0.1.0")
+            _git(package, "init")
+            _git(package, "config", "user.email", "sit@example.test")
+            _git(package, "config", "user.name", "SIT Test")
+            _git(package, "add", ".")
+            _git(package, "commit", "-m", "feat: initial skill")
+            prompt = package / "prompts" / "extraction.md"
+            prompt.write_text("Extract staged answer.\n", encoding="utf-8")
+            _git(package, "add", "prompts/extraction.md")
+            prompt.write_text("Extract unstaged answer.\n", encoding="utf-8")
+
+            code, output = _run_cli_in(package, ["diff", "--staged", "--prompt"])
+
+            self.assertEqual(code, 0)
+            self.assertIn("Current: sample-skill@0.1.0 (STAGED)", output)
+            self.assertIn("+Extract staged answer.", output)
+            self.assertNotIn("unstaged answer", output)
+
+    def test_undo_soft_resets_last_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            package = _write_package(Path(tmp) / "undo-skill", version="0.1.0")
+            _git(package, "init")
+            _git(package, "config", "user.email", "sit@example.test")
+            _git(package, "config", "user.name", "SIT Test")
+            _git(package, "add", ".")
+            _git(package, "commit", "-m", "feat: initial skill")
+            (package / "docs").mkdir()
+            (package / "docs" / "note.md").write_text("Note.\n", encoding="utf-8")
+            _git(package, "add", ".")
+            _git(package, "commit", "-m", "docs: note")
+
+            code, output = _run_cli_in(package, ["undo", "--package", str(package)])
+
+            self.assertEqual(code, 0)
+            self.assertIn("undid commit: docs: note", output)
+            self.assertIn("changes preserved", output)
+            log = subprocess.run(["git", "log", "--oneline"], cwd=package, check=True, text=True, capture_output=True).stdout
+            self.assertNotIn("docs: note", log)
+            self.assertIn("feat: initial skill", log)
+
+    def test_undo_dry_run_does_not_reset(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            package = _write_package(Path(tmp) / "undo-dry-run-skill", version="0.1.0")
+            _git(package, "init")
+            _git(package, "config", "user.email", "sit@example.test")
+            _git(package, "config", "user.name", "SIT Test")
+            _git(package, "add", ".")
+            _git(package, "commit", "-m", "feat: initial skill")
+            (package / "docs").mkdir()
+            (package / "docs" / "note.md").write_text("Note.\n", encoding="utf-8")
+            _git(package, "add", ".")
+            _git(package, "commit", "-m", "docs: note")
+
+            code, output = _run_cli_in(package, ["undo", "--dry-run", "--package", str(package)])
+
+            self.assertEqual(code, 0)
+            self.assertIn("would undo commit: docs: note", output)
+            log = subprocess.run(["git", "log", "--oneline"], cwd=package, check=True, text=True, capture_output=True).stdout
+            self.assertIn("docs: note", log)
+
+    def test_undo_package_resets_specified_repo_from_other_cwd(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            package = _write_package(root / "undo-target", version="0.1.0")
+            other = root / "other-repo"
+            other.mkdir()
+            _git(package, "init")
+            _git(package, "config", "user.email", "sit@example.test")
+            _git(package, "config", "user.name", "SIT Test")
+            _git(package, "add", ".")
+            _git(package, "commit", "-m", "feat: initial skill")
+            (package / "docs").mkdir()
+            (package / "docs" / "note.md").write_text("Note.\n", encoding="utf-8")
+            _git(package, "add", ".")
+            _git(package, "commit", "-m", "docs: note")
+
+            _git(other, "init")
+            _git(other, "config", "user.email", "sit@example.test")
+            _git(other, "config", "user.name", "SIT Test")
+            (other / "README.md").write_text("Other.\n", encoding="utf-8")
+            _git(other, "add", ".")
+            _git(other, "commit", "-m", "feat: other initial")
+
+            code, output = _run_cli_capture(["undo", "--package", str(package)], cwd=other)[:2]
+
+            self.assertEqual(code, 0)
+            self.assertIn("undid commit: docs: note", output)
+            target_log = subprocess.run(["git", "log", "--oneline"], cwd=package, check=True, text=True, capture_output=True).stdout
+            other_log = subprocess.run(["git", "log", "--oneline"], cwd=other, check=True, text=True, capture_output=True).stdout
+            self.assertNotIn("docs: note", target_log)
+            self.assertIn("feat: other initial", other_log)
 
 
 def _run_cli(argv: list[str]) -> tuple[int, str]:

@@ -10,7 +10,7 @@ import tempfile
 from typing import Iterator
 
 from .errors import SitError
-from .git import git_root
+from .git import git_output, git_root
 from .package import SkillPackage, load_package
 
 
@@ -72,9 +72,25 @@ def _load_git_range(git_range: GitRange, *, package_subpath: Path | None = None)
     package_subpath = package_subpath or _current_package_subpath(repo_root, cwd)
     with tempfile.TemporaryDirectory(prefix="sit-ref-") as tmp:
         tmp_root = Path(tmp)
-        old_root = _archive_ref(repo_root, git_range.old, tmp_root / "old")
-        new_root = _archive_ref(repo_root, git_range.new, tmp_root / "new")
+        old_root = _snapshot_ref(repo_root, git_range.old, tmp_root / "old")
+        new_root = _snapshot_ref(repo_root, git_range.new, tmp_root / "new")
         yield load_package(old_root / package_subpath), load_package(new_root / package_subpath)
+
+
+def _snapshot_ref(repo_root: Path, ref: str, destination: Path) -> Path:
+    if _is_worktree_ref(ref):
+        return repo_root
+    if _is_staged_ref(ref):
+        return _archive_staged_index(repo_root, destination)
+    return _archive_ref(repo_root, ref, destination)
+
+
+def _is_worktree_ref(ref: str) -> bool:
+    return ref.upper() in {"WORKTREE", "WORKING"}
+
+
+def _is_staged_ref(ref: str) -> bool:
+    return ref.upper() in {"STAGED", "INDEX"}
 
 
 def _package_subpath_for_spec(spec: str) -> Path | None:
@@ -121,6 +137,11 @@ def _archive_ref(repo_root: Path, ref: str, destination: Path) -> Path:
     with tarfile.open(fileobj=io.BytesIO(completed.stdout), mode="r:") as archive:
         _safe_extract(archive, destination)
     return destination
+
+
+def _archive_staged_index(repo_root: Path, destination: Path) -> Path:
+    tree = git_output(["write-tree"], cwd=repo_root)
+    return _archive_ref(repo_root, tree, destination)
 
 
 def _safe_extract(archive: tarfile.TarFile, destination: Path) -> None:

@@ -25,6 +25,7 @@ def release_package(
     no_git_tag: bool = False,
     no_version_gate: bool = False,
     bundle: bool = False,
+    allow_empty: bool = False,
 ) -> str:
     validation = validate_package(package)
     if not validation.ok:
@@ -37,6 +38,12 @@ def release_package(
         gate = check_release_gate_against_head(package, bump)
         if not gate.ok:
             raise SitError(format_gate_failure(gate))
+        if not allow_empty and _is_empty_release_after_bumped_semantic_head(package, gate):
+            raise SitError(
+                "release blocked: HEAD already contains semantic changes together with a skill.yaml version bump. "
+                "This usually means `sit commit --bump` already recorded the versioned change; use `git tag` for "
+                "that commit, or rerun release with `--allow-empty` if an additional empty release is intentional."
+            )
 
     old_version = package.version
     if old_version is None:
@@ -103,6 +110,62 @@ def bump_version(version: str, bump: str) -> str:
     if bump == "patch":
         return f"{major}.{minor}.{patch + 1}"
     raise SitError(f"Unknown release bump: {bump}")
+
+
+def _is_empty_release_after_bumped_semantic_head(package: SkillPackage, gate: VersionGateResult) -> bool:
+    if gate.diff is None or _semantic_change_messages(gate):
+        return False
+    repo_root = _repo_root(package.root)
+    if repo_root is None:
+        return False
+    try:
+        git_output(["rev-parse", "--verify", "HEAD~1"], cwd=repo_root)
+    except SitError:
+        return False
+
+    package_prefix = _package_prefix(repo_root, package.root)
+    pathspec = package_prefix or "."
+    try:
+        changed = git_output(["diff", "--name-only", "HEAD~1..HEAD", "--", pathspec], cwd=repo_root)
+    except SitError:
+        return False
+    paths = [_strip_package_prefix(path, package_prefix) for path in changed.splitlines() if path.strip()]
+    has_version_file = any(path in {"skill.yaml", "skill.yml"} for path in paths)
+    has_semantic_file = any(_is_release_semantic_path(path) for path in paths)
+    return has_version_file and has_semantic_file
+
+
+def _repo_root(path: Path) -> Path | None:
+    try:
+        return Path(git_output(["rev-parse", "--show-toplevel"], cwd=path)).resolve()
+    except SitError:
+        return None
+
+
+def _package_prefix(repo_root: Path, package_root: Path) -> str:
+    try:
+        relative = package_root.resolve().relative_to(repo_root)
+    except ValueError:
+        return ""
+    return "" if relative == Path(".") else relative.as_posix()
+
+
+def _strip_package_prefix(path: str, prefix: str) -> str:
+    normalized = path.replace("\\", "/")
+    if not prefix:
+        return normalized
+    marker = prefix.rstrip("/") + "/"
+    return normalized.removeprefix(marker)
+
+
+def _is_release_semantic_path(path: str) -> bool:
+    normalized = path.replace("\\", "/").lower()
+    if normalized in {"skill.yaml", "skill.yml", "deps.yaml", "deps.yml"}:
+        return False
+    return any(
+        part in normalized.split("/")
+        for part in {"prompts", "schemas", "tests", "scripts", "assets", "references"}
+    )
 
 
 def _append_changelog(path: Path, version: str, *, gate: VersionGateResult | None, validation, tests) -> None:

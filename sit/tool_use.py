@@ -126,6 +126,29 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "sit_review",
+        "description": (
+            "Generate a PR-ready Skill review for a package change. "
+            "Returns the sit.review.v1 contract with validation, tests, risk, "
+            "artifact summary, merge recommendation, and semantic diff."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "baseline_path": {
+                    "type": "string",
+                    "description": "Path to the baseline skill package.",
+                },
+                "current_path": {
+                    "type": "string",
+                    "description": "Path to the current skill package.",
+                },
+            },
+            "required": ["baseline_path", "current_path"],
+            "additionalProperties": False,
+        },
+    },
+    {
         "name": "sit_pr_summary",
         "description": (
             "Generate a PR summary for a skill package change. "

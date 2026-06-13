@@ -43,8 +43,10 @@ sit init my-skill && cd my-skill
 sit standardize .
 
 # Validate, test, review
+sit install-hooks .
 sit validate . && sit test .
 sit diff HEAD~1..HEAD
+sit review HEAD~1..HEAD
 sit pr-summary HEAD~1..HEAD
 
 # Release
@@ -57,9 +59,9 @@ sit release minor . --bundle
 
 **Quality:** `sit validate`, `sit test`, `sit test --run`, `sit deps check`
 
-**Diff & Review:** `sit diff`, `sit pr-summary`, `sit report`, `sit ci-summary`
+**Diff & Review:** `sit diff`, `sit review`, `sit pr-summary`, `sit report`, `sit ci-summary`
 
-**Release:** `sit commit`, `sit release`
+**Release & Safety:** `sit install-hooks`, `sit commit`, `sit release`, `sit undo`
 
 **Git passthrough:** `sit add`, `sit push`, `sit pull`, `sit branch`, `sit checkout`, `sit log`
 
@@ -69,7 +71,7 @@ sit release minor . --bundle
 
 | Interface | Usage |
 |---|---|
-| **Auto-discovery** | `sit onboard --agent` — one-command setup for Claude Code, Cursor, etc. |
+| **Auto-discovery** | `sit onboard --agent` — one-command setup for Codex, Claude Code, Cursor, etc. |
 | **Python SDK** | `from sit.sdk import Sit` — direct API calls |
 | **MCP Server** | `pip install 'sit-toolkit[mcp]'` — 7 tools over stdio |
 | **LLM Tool-Use** | `from sit.tool_use import get_tools_openai` — OpenAI & Anthropic schemas |
@@ -85,8 +87,12 @@ sit onboard --agent ./my-skill
 sit onboard --agent ./legacy-project
 ```
 
-This generates `.mcp.json` (MCP server config) and `AGENTS.md` (agent rules)
-so your agent editor detects sit automatically. Restart your editor after running.
+This generates `.mcp.json` (MCP server config) and `AGENTS.md` (agent rules).
+Codex reads `AGENTS.md` and will run the sit loop after Skill changes:
+`git status --short`, `sit validate`, `sit test`, and `sit diff HEAD..WORKTREE`
+for uncommitted working-tree review. Claude Code, Cursor, and other MCP-aware
+editors can also discover the `sit` MCP server through `.mcp.json`. Restart your
+editor after running if it needs to reload project instructions or MCP config.
 </details>
 
 <details>

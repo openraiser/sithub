@@ -43,8 +43,10 @@ sit init my-skill && cd my-skill
 sit standardize .
 
 # 验证、测试、审查
+sit install-hooks .
 sit validate . && sit test .
 sit diff HEAD~1..HEAD
+sit review HEAD~1..HEAD
 sit pr-summary HEAD~1..HEAD
 
 # 发布
@@ -57,9 +59,9 @@ sit release minor . --bundle
 
 **质量检查:** `sit validate`、`sit test`、`sit test --run`、`sit deps check`
 
-**Diff 与审查:** `sit diff`、`sit pr-summary`、`sit report`、`sit ci-summary`
+**Diff 与审查:** `sit diff`、`sit review`、`sit pr-summary`、`sit report`、`sit ci-summary`
 
-**发布:** `sit commit`、`sit release`
+**发布与安全:** `sit install-hooks`、`sit commit`、`sit release`、`sit undo`
 
 **Git 透传:** `sit add`、`sit push`、`sit pull`、`sit branch`、`sit checkout`、`sit log`
 
@@ -69,9 +71,28 @@ sit release minor . --bundle
 
 | 接口 | 用法 |
 |---|---|
+| **自动发现** | `sit onboard --agent` — 一条命令接入 Codex、Claude Code、Cursor 等 agent |
 | **Python SDK** | `from sit.sdk import Sit` — 直接 API 调用 |
 | **MCP Server** | `pip install 'sit-toolkit[mcp]'` — 7 个工具，stdio 传输 |
 | **LLM Tool-Use** | `from sit.tool_use import get_tools_openai` — OpenAI 和 Anthropic schema |
+
+<details>
+<summary>Agent 自动发现</summary>
+
+```bash
+# 给已有 Skill Package 添加 agent 配置
+sit onboard --agent ./my-skill
+
+# 或在完整 onboard 时同时生成 agent 配置
+sit onboard --agent ./legacy-project
+```
+
+这会生成 `.mcp.json`（MCP server 配置）和 `AGENTS.md`（agent 规则）。
+Codex 会读取 `AGENTS.md`，在 Skill 改动后执行 `git status --short`、
+`sit validate`、`sit test`，并用 `sit diff HEAD..WORKTREE` 审查未提交工作区改动。
+Claude Code、Cursor 等支持 MCP 的编辑器也可以通过 `.mcp.json` 自动发现 `sit`。
+如果编辑器不会热加载项目说明或 MCP 配置，运行后重启编辑器即可。
+</details>
 
 <details>
 <summary>Python SDK 示例</summary>

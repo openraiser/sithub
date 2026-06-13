@@ -132,6 +132,28 @@ TOOLS: list[Tool] = [
         },
     ),
     Tool(
+        name="sit_review",
+        description=(
+            "Generate a PR-ready Skill review for a package change. "
+            "Returns the sit.review.v1 contract with validation, tests, risk, "
+            "artifact summary, merge recommendation, and semantic diff."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "baseline_path": {
+                    "type": "string",
+                    "description": "Path to the baseline skill package.",
+                },
+                "current_path": {
+                    "type": "string",
+                    "description": "Path to the current skill package.",
+                },
+            },
+            "required": ["baseline_path", "current_path"],
+        },
+    ),
+    Tool(
         name="sit_pr_summary",
         description=(
             "Generate a PR summary for a skill package change. "
@@ -217,6 +239,8 @@ def _handle_tool(name: str, arguments: dict[str, Any]) -> str:
                 arguments["old_path"],
                 include_text_diffs=arguments.get("include_text_diffs", False),
             )
+        elif name == "sit_review":
+            result = Sit(arguments["current_path"]).review(arguments["baseline_path"])
         elif name == "sit_pr_summary":
             result = Sit(arguments["current_path"]).pr_summary(arguments["baseline_path"])
         elif name == "sit_report":

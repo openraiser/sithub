@@ -12,8 +12,8 @@ from .deps import check_dependencies, dependency_warnings_for_commit, render_dep
 from .doctor import build_doctor_payload, render_doctor_text
 from .diff import diff_packages
 from .errors import SitError
-from .gate import check_version_gate_against_head, format_gate_failure
-from .git import run_git
+from .gate import check_version_gate, check_version_gate_against_head, format_gate_failure, invalidate_gate_cache
+from .git import git_output, git_root, run_git
 from .init import init_package
 from .info import build_info_payload, render_info_text
 from .onboard import onboard_existing_skill, render_onboard_text, render_standardize_text, standardize_skill_package
@@ -28,10 +28,46 @@ from .validate import build_test_payload, run_golden_schema_tests, validate_pack
 
 GIT_PASSTHROUGH_COMMANDS = {"add", "push", "pull", "branch", "checkout", "log"}
 
+SIT_SUBCOMMANDS = {
+    "init", "status", "info", "doctor", "deps", "onboard", "standardize",
+    "validate", "test", "diff", "report", "ci-summary", "pr-summary",
+    "review", "release", "commit", "undo", "install-hooks", "_hook-pre-commit", "help",
+}
+
+
+def _is_git_passthrough(argv: list[str]) -> bool:
+    """Return True if argv[0] should be passed through to git.
+
+    Strategy: anything that is NOT a known sit subcommand and doesn't start
+    with '-' is treated as a git command. This makes sit a full drop-in git
+    wrapper with noise filtering.
+    """
+    if not argv:
+        return False
+    cmd = argv[0]
+    if cmd.startswith("-"):
+        return False
+    if cmd in SIT_SUBCOMMANDS:
+        return False
+    return True
+
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
-    if argv and argv[0] in GIT_PASSTHROUGH_COMMANDS:
+    if argv and argv[0] == "help":
+        parser = _build_parser()
+        parser.print_help()
+        return 0
+    if argv and argv[0] == "_hook-pre-commit":
+        parser = argparse.ArgumentParser(prog="sit _hook-pre-commit")
+        parser.add_argument("--package", default=".")
+        args = parser.parse_args(argv[1:])
+        try:
+            return cmd_hook_pre_commit(args)
+        except SitError as exc:
+            print(f"sit: error: {exc}", file=sys.stderr)
+            return 2
+    if _is_git_passthrough(argv):
         return cmd_git(argparse.Namespace(git_command=argv[0], git_args=argv[1:]))
 
     parser = _build_parser()
@@ -61,7 +97,36 @@ def cmd_status(args: argparse.Namespace) -> int:
     report_dir = package.report_dir()
     marker = "exists" if report_dir.exists() else "missing"
     print(f"Reports: {marker} {report_dir}")
+    print()
+    _print_status_gate_preview(package, verbose=getattr(args, "verbose", False))
     return 0
+
+
+def _print_status_gate_preview(package, *, verbose: bool = False) -> None:
+    print("Gate preview:")
+    try:
+        gate = check_version_gate_against_head(package)
+    except SitError as exc:
+        print(f"  unavailable: {exc}")
+        return
+    if not gate.checked:
+        print(f"  {gate.message}")
+        return
+    state = "pass" if gate.ok else "block"
+    print(f"  {state}: required={gate.required_bump}, actual={gate.actual_bump}, risk={gate.diff.risk if gate.diff else 'unknown'}")
+    if verbose:
+        print(f"  message: {gate.message.splitlines()[0]}")
+    if gate.diff is not None:
+        events = [
+            event for event in gate.diff.events
+            if event.category not in {"package", "risk"} and not event.message.startswith("MANIFEST changed version:")
+        ]
+        if events:
+            shown = events if verbose else events[:3]
+            for event in shown:
+                print(f"  - {event.message}")
+            if not verbose and len(events) > 3:
+                print(f"  - ... and {len(events) - 3} more")
 
 
 def cmd_info(args: argparse.Namespace) -> int:
@@ -191,6 +256,8 @@ def cmd_test(args: argparse.Namespace) -> int:
 
 
 def cmd_diff(args: argparse.Namespace) -> int:
+    if args.staged:
+        return _cmd_diff_staged(args)
     git_range = parse_git_range(args.old) if args.new is None else None
     with load_package_pair(args.old, args.new) as (old, new):
         result = diff_packages(old, new)
@@ -202,6 +269,26 @@ def cmd_diff(args: argparse.Namespace) -> int:
                 args.format,
                 old_source=git_range.old if git_range else args.old,
                 new_source=git_range.new if git_range else args.new,
+                show_prompt_diff=args.prompt,
+            ),
+            end="",
+        )
+    return 0
+
+
+def _cmd_diff_staged(args: argparse.Namespace) -> int:
+    """Compare HEAD with the Git index snapshot, excluding unstaged edits."""
+    staged_range = "HEAD..STAGED"
+    with load_package_pair(staged_range) as (old, new):
+        result = diff_packages(old, new)
+        print(
+            _render_diff(
+                result,
+                old,
+                new,
+                args.format,
+                old_source="HEAD",
+                new_source="STAGED",
                 show_prompt_diff=args.prompt,
             ),
             end="",
@@ -298,41 +385,146 @@ def cmd_init(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_install_hooks(args: argparse.Namespace) -> int:
+    package = load_package(args.package)
+    repo_root = git_root(package.root)
+    if repo_root is None:
+        raise SitError("install-hooks requires a Git repository")
+
+    hook_path = _git_hook_path(repo_root, "pre-commit")
+    hook_path.parent.mkdir(parents=True, exist_ok=True)
+    if hook_path.exists() and "Generated by sit install-hooks" not in hook_path.read_text(encoding="utf-8", errors="replace") and not args.force:
+        raise SitError(f"pre-commit hook already exists: {hook_path}; use --force to replace it")
+
+    package_arg = _hook_package_arg(repo_root, package.root)
+    hook = "\n".join(
+        [
+            "#!/bin/sh",
+            "# Generated by sit install-hooks",
+            f"sit _hook-pre-commit --package {json.dumps(package_arg)}",
+            "",
+        ]
+    )
+    hook_path.write_text(hook, encoding="utf-8")
+    hook_path.chmod(hook_path.stat().st_mode | 0o111)
+    print(f"Installed sit pre-commit hook: {hook_path}")
+    print("Direct git commit will run sit staged validation, tests, and version gate.")
+    return 0
+
+
+def cmd_hook_pre_commit(args: argparse.Namespace) -> int:
+    try:
+        with load_compare_package(args.package, "HEAD..STAGED") as (staged, baseline):
+            validation = validate_package(staged)
+            if not validation.ok:
+                for message in validation.messages:
+                    print(message)
+                raise SitError("pre-commit blocked: validation failed")
+
+            tests = run_golden_schema_tests(staged)
+            if not tests.ok:
+                for message in tests.messages:
+                    print(message)
+                raise SitError("pre-commit blocked: golden tests failed")
+
+            if baseline is not None:
+                gate = check_version_gate(baseline, staged)
+                if not gate.ok:
+                    print(gate.message)
+                    _print_gate_hint(gate)
+                    raise SitError(f"pre-commit blocked: {format_gate_failure(gate)}")
+                print(f"pre-commit gate: {gate.message.splitlines()[0]}")
+            else:
+                print("pre-commit gate: skipped (no baseline)")
+    except SitError as exc:
+        if "git archive failed for HEAD" not in str(exc):
+            raise
+        package = load_package(args.package)
+        validation = validate_package(package)
+        if not validation.ok:
+            for message in validation.messages:
+                print(message)
+            raise SitError("pre-commit blocked: validation failed")
+        tests = run_golden_schema_tests(package)
+        if not tests.ok:
+            for message in tests.messages:
+                print(message)
+            raise SitError("pre-commit blocked: golden tests failed")
+        print("pre-commit gate: skipped (no HEAD baseline)")
+    return 0
+
+
+def _git_hook_path(repo_root: Path, hook_name: str) -> Path:
+    try:
+        hook = git_output(["rev-parse", "--git-path", f"hooks/{hook_name}"], cwd=repo_root)
+    except SitError:
+        return repo_root / ".git" / "hooks" / hook_name
+    hook_path = Path(hook)
+    if not hook_path.is_absolute():
+        hook_path = repo_root / hook_path
+    return hook_path
+
+
+def _hook_package_arg(repo_root: Path, package_root: Path) -> str:
+    try:
+        return package_root.relative_to(repo_root).as_posix() or "."
+    except ValueError:
+        return package_root.as_posix()
+
+
 def cmd_git(args: argparse.Namespace) -> int:
     result = run_git([args.git_command, *args.git_args], check=False)
     if args.git_command == "add" and result == 0:
-        _print_add_gate_hints()
+        if not getattr(args, "quiet", False):
+            _print_add_gate_hints()
+    elif result != 0 and not getattr(args, "quiet", False):
+        _print_git_failure_hint(args.git_command)
     return result
 
 
+def _print_git_failure_hint(command: str) -> None:
+    hints = {
+        "commit": "sit commit runs Skill validation, tests, and version gates before committing.",
+        "push": "run `sit status` or `sit review main..HEAD` before pushing a Skill change.",
+        "add": "run `git status --short` to inspect paths, then `sit diff --staged` after staging.",
+        "pull": "after pulling, run `sit validate` and `sit test` if Skill files changed.",
+    }
+    hint = hints.get(command, "this was passed through to Git; rerun with `git " + command + "` for raw Git behavior.")
+    print(f"sit: hint: {hint}", file=sys.stderr)
+
+
 def _print_add_gate_hints() -> None:
-    """After staging files, hint which ones will trigger a version gate bump."""
+    """After staging files, give a cheap semantic hint without full package diff."""
     try:
-        from .git import git_output as _git_out
-        staged = _git_out(["diff", "--cached", "--name-only"])
+        staged = git_output(["diff", "--cached", "--name-only"])
     except Exception:
         return
     if not staged:
         return
 
-    bump_triggers: list[str] = []
-    for path in staged.splitlines():
-        path_lower = path.lower()
-        if path_lower.endswith("skill.md") or path_lower.startswith("references/"):
-            bump_triggers.append(f"  {path} (prompt change)")
-        elif path_lower.startswith("scripts/") and path_lower.endswith(".py"):
-            bump_triggers.append(f"  {path} (script change)")
-        elif path_lower == "skill.yaml":
-            bump_triggers.append(f"  {path} (manifest)")
-
-    if bump_triggers:
-        print(f"staged {len(staged.splitlines())} file(s); {len(bump_triggers)} may require version bump:")
-        for trigger in bump_triggers[:6]:
-            print(trigger)
-        if len(bump_triggers) > 6:
-            print(f"  ... and {len(bump_triggers) - 6} more")
+    paths = staged.splitlines()
+    semantic = [path for path in paths if _is_semantic_staged_path(path)]
+    if semantic:
+        print(f"staged {len(paths)} file(s); {len(semantic)} semantic path(s) may affect Skill behavior")
+        for path in semantic[:4]:
+            print(f"  {path}")
+        if len(semantic) > 4:
+            print(f"  ... and {len(semantic) - 4} more")
+        print("run `sit diff --staged` for exact semantic impact")
     else:
-        print(f"staged {len(staged.splitlines())} file(s)")
+        print(f"staged {len(paths)} file(s); no obvious Skill semantic paths")
+
+
+def _is_semantic_staged_path(path: str) -> bool:
+    normalized = path.replace("\\", "/").lower()
+    if normalized in {"skill.yaml", "skill.yml", "deps.yaml", "deps.yml"}:
+        return True
+    if normalized.endswith("/skill.yaml") or normalized.endswith("/skill.yml"):
+        return True
+    return any(
+        part in normalized.split("/")
+        for part in {"prompts", "schemas", "tests", "scripts", "assets", "references"}
+    )
 
 
 def cmd_commit(args: argparse.Namespace) -> int:
@@ -345,34 +537,42 @@ def cmd_commit(args: argparse.Namespace) -> int:
             raise SitError("commit blocked: validation failed")
 
         if not args.no_test:
-            tests = run_golden_schema_tests(package)
-            if not tests.ok:
-                for message in tests.messages:
-                    print(message)
-                raise SitError("commit blocked: golden tests failed")
+            if not _should_run_golden_tests(package):
+                if not getattr(args, "quiet", False):
+                    print("golden tests: skipped (no prompt/schema/test/script changes)")
+            else:
+                tests = run_golden_schema_tests(package)
+                if not tests.ok:
+                    for message in tests.messages:
+                        print(message)
+                    raise SitError("commit blocked: golden tests failed")
 
         if not args.no_version_gate:
-            # If --bump is provided, auto-bump version before gate check
+            bump_snapshot: str | None = None
             if args.bump:
                 gate_pre = check_version_gate_against_head(package)
                 if not gate_pre.ok:
+                    bump_snapshot = package.manifest_path.read_text(encoding="utf-8")
                     _auto_bump_version(package, args.bump)
                     package = load_package(args.package)
 
             gate = check_version_gate_against_head(package)
             if not gate.ok:
+                if bump_snapshot is not None:
+                    package.manifest_path.write_text(bump_snapshot, encoding="utf-8")
+                    run_git(["checkout", "--", str(package.manifest_path)], check=False)
                 print(gate.message)
                 if args.bump:
                     print(f"sit: version bump '{args.bump}' was insufficient for the semantic changes detected.")
                 else:
                     _print_gate_hint(gate)
                 raise SitError(format_gate_failure(gate))
-            # Compact success line
-            print(f"gate: {gate.message.splitlines()[0]}")
+            if not getattr(args, "quiet", False):
+                print(f"gate: {gate.message.splitlines()[0]}")
         else:
-            # Print compact validation summary
-            test_count = len(validation.messages)
-            print(f"validated ({test_count} checks passed)")
+            if not getattr(args, "quiet", False):
+                test_count = len(validation.messages)
+                print(f"validated ({test_count} checks passed)")
 
         for warning in dependency_warnings_for_commit(package):
             print(f"WARN {warning}")
@@ -383,8 +583,11 @@ def cmd_commit(args: argparse.Namespace) -> int:
     git_args.extend(args.git_args)
     result = run_git(git_args, check=False)
 
-    # Compact post-commit summary
-    if result == 0 and not args.no_verify:
+    if result != 0 and args.bump and not args.no_verify and not args.no_version_gate:
+        package = load_package(args.package)
+        _undo_bump_on_commit_failure(package)
+
+    if result == 0 and not args.no_verify and not getattr(args, "quiet", False):
         package = load_package(args.package)
         short_hash = _git_short_hash(package.root)
         version_info = f"{package.version}" if package.version else ""
@@ -409,7 +612,70 @@ def _auto_bump_version(package, bump: str) -> None:
     )
     manifest.write_text(new_text, encoding="utf-8")
     run_git(["add", str(manifest)], check=False)
+    invalidate_gate_cache()
     print(f"auto-bumped version: {old_version} -> {new_version}")
+
+
+def _undo_bump_on_commit_failure(package) -> None:
+    """Rollback the auto-bumped skill.yaml when git commit fails."""
+    try:
+        run_git(["checkout", "--", str(package.manifest_path)], check=False)
+        print("auto-bump rolled back (commit failed)")
+    except Exception:
+        pass
+
+
+def _should_run_golden_tests(package) -> bool:
+    """Check if staged files touch prompts/schemas/tests/scripts (smart-skip)."""
+    from .git import git_output as _git_out
+    try:
+        staged = _git_out(["diff", "--cached", "--name-only"], cwd=package.root)
+    except Exception:
+        return True
+    if not staged:
+        return True
+
+    trigger_prefixes = ("prompts/", "schemas/", "tests/", "scripts/")
+    trigger_files = ("skill.yaml",)
+    for path in staged.splitlines():
+        path_lower = path.lower()
+        if any(path_lower.startswith(prefix) for prefix in trigger_prefixes):
+            return True
+        if path_lower in trigger_files:
+            return True
+        if path_lower.endswith("skill.md"):
+            return True
+    return False
+
+
+def cmd_undo(args: argparse.Namespace) -> int:
+    """Undo the last commit (soft reset by default, preserving changes in working tree)."""
+    from .git import git_output as _git_out
+    package_path = Path(args.package).expanduser().resolve()
+    reset_cwd = package_path.parent if package_path.is_file() else package_path
+
+    try:
+        last_msg = _git_out(["log", "-1", "--format=%s"], cwd=reset_cwd)
+    except SitError:
+        raise SitError("cannot undo: no commits found")
+
+    if args.dry_run:
+        mode = "hard" if args.hard else "soft"
+        print(f"would undo commit: {last_msg}")
+        print(f"mode: {mode}")
+        if not args.hard:
+            print("changes would be preserved in working tree")
+        return 0
+
+    mode = "--hard" if args.hard else "--soft"
+    result = run_git(["reset", mode, "HEAD~1"], cwd=reset_cwd, check=False)
+    if result != 0:
+        raise SitError("git reset failed")
+
+    print(f"undid commit: {last_msg}")
+    if not args.hard:
+        print("changes preserved in working tree (use --hard to discard)")
+    return 0
 
 
 def _compute_bumped_version(version: str, bump: str) -> str:
@@ -495,21 +761,24 @@ def cmd_review(args: argparse.Namespace) -> int:
 
 def cmd_release(args: argparse.Namespace) -> int:
     package = load_package(args.package)
-    print(
-        release_package(
-            package,
-            args.bump,
-            no_git_tag=args.no_git_tag,
-            no_version_gate=args.no_version_gate,
-            bundle=args.bundle,
-        )
+    message = release_package(
+        package,
+        args.bump,
+        no_git_tag=args.no_git_tag,
+        no_version_gate=args.no_version_gate,
+        bundle=args.bundle,
+        allow_empty=args.allow_empty,
     )
+    if not getattr(args, "quiet", False):
+        print(message)
     return 0
 
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="sit", description="Skill Iteration Toolkit CLI")
     parser.add_argument("--version", action="version", version=f"sit {__version__}")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Show detailed output")
+    parser.add_argument("--quiet", "-q", action="store_true", help="Suppress non-essential output")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     init = subparsers.add_parser("init", help="Create a Skill Package scaffold and optionally initialize Git")
@@ -560,6 +829,11 @@ def _build_parser() -> argparse.ArgumentParser:
     standardize.add_argument("--format", choices=["text", "json"], default="text", help="Output format")
     standardize.set_defaults(func=cmd_standardize)
 
+    install_hooks = subparsers.add_parser("install-hooks", help="Install Git hooks that run sit checks before direct git commit")
+    install_hooks.add_argument("package", nargs="?", default=".", help="Skill Package directory or skill.yaml")
+    install_hooks.add_argument("--force", action="store_true", help="Replace an existing non-sit pre-commit hook")
+    install_hooks.set_defaults(func=cmd_install_hooks)
+
     validate = subparsers.add_parser("validate", help="Validate manifest paths, schemas, and golden JSONL")
     validate.add_argument("package", nargs="?", default=".", help="Skill Package directory or skill.yaml")
     validate.set_defaults(func=cmd_validate)
@@ -573,8 +847,9 @@ def _build_parser() -> argparse.ArgumentParser:
     test.set_defaults(func=cmd_test)
 
     diff = subparsers.add_parser("diff", help="Compare two Skill Package directories or a Git range")
-    diff.add_argument("old", help="Baseline Skill Package directory, skill.yaml, or Git range such as main..HEAD")
+    diff.add_argument("old", nargs="?", default="HEAD..WORKTREE", help="Baseline Skill Package directory, skill.yaml, or Git range such as main..HEAD")
     diff.add_argument("new", nargs="?", help="Current Skill Package directory or skill.yaml")
+    diff.add_argument("--staged", action="store_true", help="Preview the version gate result for currently staged/working changes")
     diff.add_argument("--format", choices=["text", "plain", "markdown", "json"], default="text", help="Output format")
     diff.add_argument("--prompt", action="store_true", help="Include prompt/reference unified text diffs")
     diff.set_defaults(func=cmd_diff)
@@ -617,6 +892,7 @@ def _build_parser() -> argparse.ArgumentParser:
     release.add_argument("--no-git-tag", action="store_true", help="Skip creating an annotated Git tag")
     release.add_argument("--no-version-gate", action="store_true", help="Skip semantic diff versus version bump consistency check")
     release.add_argument("--bundle", action="store_true", help="Write a reproducible release tarball under dist/")
+    release.add_argument("--allow-empty", action="store_true", help="Allow an empty release when no unreleased semantic change is detected")
     release.set_defaults(func=cmd_release)
 
     for git_command in ("add", "push", "pull", "branch", "checkout", "log"):
@@ -634,6 +910,12 @@ def _build_parser() -> argparse.ArgumentParser:
     commit.add_argument("--no-verify", action="store_true", help="Skip sit validation and tests")
     commit.add_argument("git_args", nargs=argparse.REMAINDER)
     commit.set_defaults(func=cmd_commit)
+
+    undo = subparsers.add_parser("undo", help="Undo the last sit commit (soft reset HEAD~1)")
+    undo.add_argument("--hard", action="store_true", help="Hard reset (discard working tree changes too)")
+    undo.add_argument("--dry-run", action="store_true", help="Show the commit that would be undone without resetting")
+    undo.add_argument("--package", default=".", help="Skill Package directory")
+    undo.set_defaults(func=cmd_undo)
 
     return parser
 
