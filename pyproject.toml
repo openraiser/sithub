@@ -53,5 +53,8 @@ Issues = "https://github.com/OpenRaiser/SitHub/issues"
 sit = "sit.cli:main"
 sit-mcp-server = "sit.mcp_server:main"
 
-[tool.setuptools]
-packages = ["sit"]
+[tool.setuptools.packages.find]
+include = ["sit"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
