@@ -60,10 +60,27 @@ jobs:
     permissions:
       id-token: write
     steps:
+      - name: Check whether version already exists on PyPI
+        id: pypi-version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          status="$(curl -sS -o /dev/null -w '%{http_code}' "https://pypi.org/pypi/sit-toolkit/${version}/json")"
+          if [ "$status" = "200" ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "sit-toolkit ${version} already exists on PyPI; skipping publish." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$status" = "404" ]; then
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Unexpected PyPI status ${status} while checking sit-toolkit ${version}" >&2
+            exit 1
+          fi
+
       - name: Download artifacts
+        if: steps.pypi-version.outputs.exists != 'true'
         uses: actions/download-artifact@v7
         with:
           name: dist
           path: dist/
       - name: Publish to PyPI
+        if: steps.pypi-version.outputs.exists != 'true'
         uses: pypa/gh-action-pypi-publish@release/v1
