@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>sit case showcase</title>
+  <style>
+    :root {
+      --ink: #172033;
+      --muted: #5d6b82;
+      --line: #d7deea;
+      --surface: #f6f8fb;
+      --panel: #ffffff;
+      --accent: #0f766e;
+      --accent-soft: #d8f4ef;
+      --warn: #b45309;
+      --warn-soft: #fff4d7;
+      --code: #111827;
+      --code-soft: #eef2f7;
+      --purple: #6d5bd0;
+      --purple-soft: #ebe9ff;
+      --blue: #2563eb;
+      --blue-soft: #dbeafe;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      width: 1400px;
+      height: 900px;
+      overflow: hidden;
+      background: var(--surface);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    .canvas {
+      width: 1400px;
+      height: 900px;
+      padding: 44px;
+      display: grid;
+      grid-template-columns: 1.05fr 0.95fr;
+      gap: 28px;
+      background:
+        linear-gradient(135deg, rgba(15, 118, 110, 0.10), transparent 28%),
+        linear-gradient(315deg, rgba(37, 99, 235, 0.10), transparent 30%),
+        var(--surface);
+    }
+
+    .hero {
+      display: flex;
+      flex-direction: column;
+      gap: 22px;
+      min-width: 0;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      width: fit-content;
+      gap: 8px;
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.72);
+      color: var(--muted);
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    h1 {
+      margin: 0;
+      max-width: 680px;
+      font-size: 66px;
+      line-height: 0.96;
+      letter-spacing: 0;
+    }
+
+    .lede {
+      margin: 0;
+      max-width: 650px;
+      color: var(--muted);
+      font-size: 26px;
+      line-height: 1.3;
+      font-weight: 520;
+    }
+
+    .compare {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 4px;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: 0 14px 34px rgba(23, 32, 51, 0.08);
+      min-width: 0;
+    }
+
+    .card-header {
+      padding: 16px 18px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--line);
+      font-weight: 800;
+      font-size: 18px;
+    }
+
+    .plain-diff {
+      padding: 18px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: var(--code);
+      font-size: 17px;
+      line-height: 1.45;
+    }
+
+    .minus {
+      color: #b91c1c;
+    }
+
+    .plus {
+      color: #047857;
+    }
+
+    .semantic-list {
+      padding: 16px 18px 18px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .signal {
+      display: grid;
+      grid-template-columns: 102px 1fr;
+      gap: 10px;
+      align-items: start;
+      min-height: 36px;
+      font-size: 17px;
+      line-height: 1.25;
+    }
+
+    .tag {
+      display: inline-block;
+      width: fit-content;
+      padding: 5px 8px;
+      border-radius: 6px;
+      background: var(--code-soft);
+      color: var(--ink);
+      font-size: 14px;
+      font-weight: 850;
+      text-transform: uppercase;
+    }
+
+    .tag.schema {
+      background: var(--blue-soft);
+      color: var(--blue);
+    }
+
+    .tag.test {
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+
+    .tag.risk {
+      background: var(--warn-soft);
+      color: var(--warn);
+    }
+
+    .tag.script {
+      background: var(--purple-soft);
+      color: var(--purple);
+    }
+
+    .right {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 18px;
+      min-width: 0;
+    }
+
+    .case-card {
+      padding: 22px;
+    }
+
+    .case-title {
+      display: flex;
+      justify-content: space-between;
+      gap: 14px;
+      align-items: start;
+      margin-bottom: 16px;
+    }
+
+    .case-title h2 {
+      margin: 0;
+      font-size: 28px;
+      line-height: 1.08;
+      letter-spacing: 0;
+    }
+
+    .version {
+      flex: 0 0 auto;
+      padding: 7px 10px;
+      border-radius: 6px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-weight: 850;
+      font-size: 16px;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+    }
+
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fbfcfe;
+      min-height: 82px;
+    }
+
+    .metric b {
+      display: block;
+      font-size: 22px;
+      line-height: 1;
+      margin-bottom: 8px;
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.18;
+      font-weight: 700;
+    }
+
+    .workflow {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .step {
+      min-height: 76px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 11px;
+      background: #ffffff;
+      font-size: 14px;
+      line-height: 1.2;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .step strong {
+      display: block;
+      color: var(--ink);
+      font-size: 16px;
+      margin-bottom: 6px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+    }
+
+    .mini {
+      padding: 18px;
+      min-height: 236px;
+    }
+
+    .mini h3 {
+      margin: 0 0 13px;
+      font-size: 22px;
+      line-height: 1.1;
+    }
+
+    .rows {
+      display: grid;
+      gap: 9px;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 86px 1fr;
+      gap: 10px;
+      font-size: 15px;
+      line-height: 1.2;
+      align-items: start;
+    }
+
+    .file {
+      display: inline-block;
+      padding: 5px 7px;
+      border-radius: 5px;
+      background: var(--code-soft);
+      color: var(--code);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .footer-note {
+      margin-top: auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      color: var(--muted);
+      font-size: 17px;
+      font-weight: 700;
+    }
+
+    .install {
+      padding: 11px 14px;
+      border-radius: 7px;
+      background: var(--code);
+      color: #f9fafb;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 16px;
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+  <main class="canvas">
+    <section class="hero">
+      <div class="eyebrow">real case: paper-webpage-builder</div>
+      <h1>Git shows lines. sit shows Skill risk.</h1>
+      <p class="lede">When an agent edits prompts, schemas, scripts, and tests, sit turns the diff into an auditable Skill review.</p>
+
+      <div class="compare">
+        <div class="card">
+          <div class="card-header">Plain Git diff</div>
+          <div class="plain-diff">
+            <div class="minus">- "modules": ["Hero"]</div>
+            <div class="plus">+ "modules": ["Hero", "Quality Checks"]</div>
+            <div class="plus">+ "keywords": ["paper webpage"]</div>
+            <br>
+            <div>+13 -2 lines</div>
+            <div>Reviewer still asks:</div>
+            <div>what changed semantically?</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">sit semantic review</div>
+          <div class="semantic-list">
+            <div class="signal"><span class="tag schema">schema</span><span>output property added: <b>keywords</b> optional</span></div>
+            <div class="signal"><span class="tag test">golden</span><span>3 expected outputs changed and still pass</span></div>
+            <div class="signal"><span class="tag risk">risk</span><span>review-required, suggested bump: <b>minor</b></span></div>
+            <div class="signal"><span class="tag script">review</span><span>ready-to-paste PR summary with reproduce commands</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="footer-note">
+        <span>For AI Skill packages: prompts + schemas + tests + scripts + release artifacts.</span>
+        <span class="install">pip install sit-toolkit</span>
+      </div>
+    </section>
+
+    <section class="right">
+      <div class="card case-card">
+        <div class="case-title">
+          <h2>One real Skill PR, reduced to review signals</h2>
+          <div class="version">0.2.0 -> 0.3.0</div>
+        </div>
+        <div class="metrics">
+          <div class="metric"><b>pass</b><span>validation</span></div>
+          <div class="metric"><b>3/3</b><span>golden tests</span></div>
+          <div class="metric"><b>minor</b><span>version bump</span></div>
+          <div class="metric"><b>review</b><span>risk level</span></div>
+        </div>
+        <div class="workflow">
+          <div class="step"><strong>Agent edits</strong>Skill behavior changes</div>
+          <div class="step"><strong>sit diff</strong>Classifies semantic impact</div>
+          <div class="step"><strong>sit test</strong>Checks golden outputs</div>
+          <div class="step"><strong>sit review</strong>Writes PR guidance</div>
+          <div class="step"><strong>sit release</strong>Bundles reproducibly</div>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div class="card mini">
+          <h3>Complex PRs stay readable</h3>
+          <div class="rows">
+            <div class="row"><span class="file">prompt</span><span>design principles +55 lines, table handling rules</span></div>
+            <div class="row"><span class="file">script</span><span>design drift checker adds CLI and functions</span></div>
+            <div class="row"><span class="file">script</span><span>link checker adds external URL mode</span></div>
+            <div class="row"><span class="file">ref</span><span>module patterns explain evidence hierarchy</span></div>
+          </div>
+        </div>
+
+        <div class="card mini">
+          <h3>A Skill is more than a prompt</h3>
+          <div class="rows">
+            <div class="row"><span class="file">SKILL.md</span><span>operating instructions</span></div>
+            <div class="row"><span class="file">schema</span><span>machine-readable contract</span></div>
+            <div class="row"><span class="file">golden</span><span>behavior regression tests</span></div>
+            <div class="row"><span class="file">scripts</span><span>validation and asset tooling</span></div>
+            <div class="row"><span class="file">reports</span><span>release and PR audit trail</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

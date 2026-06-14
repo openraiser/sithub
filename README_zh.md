@@ -2,58 +2,183 @@
 
 [English](README.md) | [中文](README_zh.md)
 
-**AI Skill 包的 Git 原生版本管理。**
+**给会修改 prompt、schema、脚本和 Skill 包的 AI agent 准备的 Git 原生安全层。**
 
-`sit` 为提示词(prompt)、模式(schema)、黄金测试(golden test)和发布产物提供语义化版本管理。它能识别变更内容、评估风险等级，并在提交和发布前执行门禁检查。
+Git 能告诉你 prompt 改了几行。`sit` 会告诉你：这是 typo、行为变化、schema 契约变化、测试期望变化，还是发布风险。
 
 ```bash
 pip install sit-toolkit
+sit diff HEAD..WORKTREE
+sit review HEAD..WORKTREE
 ```
 
-## 解决什么问题
+当人或 AI agent 持续演进可复用 Skill 时，用 `sit` 在不替换 Git 的前提下获得语义 diff、golden test、版本门禁、PR review 和可复现发布。
 
-用纯 Git 管理 prompt 或 schema，你只看到 `+13 -2` 行。你不知道这是修了个 typo 还是改了核心行为。`sit` 知道。
+![sit turns Git diffs into Skill review signals](https://raw.githubusercontent.com/OpenRaiser/Sit/main/.github/assets/sit-case-showcase.png)
 
-```
-$ sit diff v0.3.0..v0.4.0
+## 为什么需要 sit？
 
-Skill Diff
-Baseline: paper-webpage-builder@0.3.0
-Current: paper-webpage-builder@0.4.0
+AI Skill 包不只是一个 prompt。一个真实 Skill 往往包含：
+
+- `SKILL.md` 和参考说明
+- 输入/输出 JSON schema
+- golden 行为测试
+- 验证脚本、资产处理脚本
+- 发布报告和可复现 bundle
+
+普通 Git 看到的是文件行。`sit` 看到的是 Skill 的行为边界：
+
+```text
+SCHEMA output property added keywords (optional)
+GOLDEN expected changed latex-project-page
+GOLDEN expected changed pdf-with-assets-page
+GOLDEN expected changed existing-webpage-refresh
 Risk: review-required
 Suggested version bump: minor
-
-[prompt]
-  - PROMPT changed SKILL.md (+13 -2; headings: Core Rule, Workflow)
-
-[script]
-  - SCRIPT changed scripts/scan_paper.py (review required)
-
-[reference]
-  - REFERENCE changed references/design_principles.md (+27 -3)
+Golden tests: pass
 ```
 
-## 快速开始
+上面的例子来自真实包 `paper-webpage-builder`：一个面向 agent 的论文网页生成 Skill 修改了输出契约和预期行为。`sit` 把这次变更转成可审查的 PR 信号，而不是让 reviewer 从原始 diff 里猜意图。
+
+## 60 秒上手
+
+已有 prompt 或 Skill 项目：
 
 ```bash
-# 新建包
-sit init my-skill && cd my-skill
-
-# 已有项目
+pip install sit-toolkit
 sit standardize .
+sit validate .
+sit test .
+sit diff HEAD..WORKTREE
+sit review HEAD..WORKTREE
+```
 
-# 验证、测试、审查
+新建 Skill 包：
+
+```bash
+sit init my-skill
+cd my-skill
 sit install-hooks .
-sit validate . && sit test .
-sit diff HEAD~1..HEAD
-sit review HEAD~1..HEAD
-sit pr-summary HEAD~1..HEAD
+```
 
-# 发布
+Skill 改动后，通过 `sit` 提交：
+
+```bash
+sit add .
+sit commit --bump minor -m "improve webpage quality checks"
 sit release minor . --bundle
 ```
 
-## 命令
+Git 仍然负责存储和历史。`sit` 增加的是语义层：包结构、测试、diff、版本门禁、PR 摘要和发布报告。
+
+## sit 能抓住什么
+
+| 变更 | sit 会报告什么 |
+|---|---|
+| Prompt 或 reference 修改 | 改了哪些 heading、prompt 摘要、行为风险 |
+| JSON schema 修改 | 字段增删、required 变化、enum 变化、breaking risk |
+| Golden test 更新 | case 级 expected output 变化和 pass/fail |
+| 脚本变化 | CLI 参数、函数/类/import、外部命令、review risk |
+| 版本号不匹配 | commit/release 前检查 required bump vs actual bump |
+| 本地依赖 | `deps.yaml` 兼容性和反向依赖提示 |
+| 可复现发布 | bundle archive、sha256 manifest、`reproduce.sh` |
+
+## 为 agent 设计
+
+`sit` 给 agent 一个明确的 Skill 修改后闭环：
+
+```bash
+git status --short
+sit validate .
+sit test .
+sit diff HEAD..WORKTREE
+sit review HEAD..WORKTREE
+```
+
+一条命令添加项目说明和 MCP 配置：
+
+```bash
+sit onboard --agent ./my-skill
+```
+
+它会生成：
+
+- `AGENTS.md`，给 Codex 和其他能读取仓库说明的 agent 使用
+- `.mcp.json`，给 Claude Code、Cursor 等 MCP-aware 编辑器使用
+- 一个本地工作流，要求 agent 在交付前验证、测试并审查语义变化
+
+### Agent 接口
+
+| 接口 | 用途 |
+|---|---|
+| 自动发现 | `sit onboard --agent` 接入 Codex、Claude Code、Cursor 等工具 |
+| Python SDK | `from sit.sdk import Sit` 直接调用 |
+| MCP server | `pip install 'sit-toolkit[mcp]'`，提供 12 个 stdio 工具 |
+| LLM tool-use schema | `from sit.tool_use import get_tools_openai`，提供 OpenAI/Anthropic 兼容工具定义 |
+
+Python SDK 示例：
+
+```python
+from sit.sdk import Sit
+
+s = Sit("./my-skill-package")
+s.info()
+s.validate()
+s.test()
+s.diff_range("HEAD..WORKTREE")
+s.review_range("HEAD..WORKTREE")
+s.report_range("HEAD..WORKTREE")
+```
+
+MCP 配置：
+
+```json
+{
+  "mcpServers": {
+    "sit": { "command": "sit-mcp-server" }
+  }
+}
+```
+
+## 核心工作流
+
+```bash
+# 查看包状态
+sit info .
+sit doctor .
+
+# 验证和测试行为
+sit validate .
+sit test .
+sit test --run
+
+# 审查语义变化
+sit diff HEAD..WORKTREE
+sit diff --staged
+sit review main..HEAD
+sit pr-summary main..HEAD
+sit report . --compare main..HEAD --format html
+
+# 安全提交和发布
+sit install-hooks .
+sit commit --bump minor -m "update skill behavior"
+sit release minor . --bundle
+```
+
+## CI 集成
+
+`sit init` 会生成 GitHub Actions workflow。也可以手动添加：
+
+```yaml
+- run: sit validate "$SIT_PACKAGE_DIR"
+- run: sit test "$SIT_PACKAGE_DIR"
+- run: sit test "$SIT_PACKAGE_DIR" --run
+- run: sit ci-summary "$SIT_PACKAGE_DIR" --compare origin/main..HEAD >> "$GITHUB_STEP_SUMMARY"
+```
+
+当前包在 Python 3.10、3.11、3.12、3.13 上运行 `ruff`、`mypy` 和 `pytest`。
+
+## 命令地图
 
 **生命周期:** `sit init`、`sit standardize`、`sit onboard`、`sit doctor`
 
@@ -65,89 +190,27 @@ sit release minor . --bundle
 
 **Git 透传:** `sit add`、`sit push`、`sit pull`、`sit branch`、`sit checkout`、`sit log`
 
-## Agent 集成
-
-`sit` 通过三种接口向 AI agent 暴露能力:
-
-| 接口 | 用法 |
-|---|---|
-| **自动发现** | `sit onboard --agent` — 一条命令接入 Codex、Claude Code、Cursor 等 agent |
-| **Python SDK** | `from sit.sdk import Sit` — 直接 API 调用 |
-| **MCP Server** | `pip install 'sit-toolkit[mcp]'` — 12 个工具，stdio 传输 |
-| **LLM Tool-Use** | `from sit.tool_use import get_tools_openai` — OpenAI 和 Anthropic schema |
-
-<details>
-<summary>Agent 自动发现</summary>
+## 安装
 
 ```bash
-# 给已有 Skill Package 添加 agent 配置
-sit onboard --agent ./my-skill
-
-# 或在完整 onboard 时同时生成 agent 配置
-sit onboard --agent ./legacy-project
+pip install sit-toolkit
 ```
 
-这会生成 `.mcp.json`（MCP server 配置）和 `AGENTS.md`（agent 规则）。
-Codex 会读取 `AGENTS.md`，在 Skill 改动后执行 `git status --short`、
-`sit validate`、`sit test`，并用 `sit diff HEAD..WORKTREE` 审查未提交工作区改动。
-Claude Code、Cursor 等支持 MCP 的编辑器也可以通过 `.mcp.json` 自动发现 `sit`。
-如果编辑器不会热加载项目说明或 MCP 配置，运行后重启编辑器即可。
-</details>
-
-<details>
-<summary>Python SDK 示例</summary>
-
-```python
-from sit.sdk import Sit
-
-s = Sit("./my-skill-package")
-s.info()            # 包元信息
-s.validate()        # 结构检查
-s.test()            # 黄金测试
-s.diff("./old")     # 语义 diff
-s.pr_summary("./old")  # PR 摘要
-s.report(compare="./old")  # 完整报告
-```
-</details>
-
-<details>
-<summary>MCP Server 配置</summary>
+可选 MCP 支持：
 
 ```bash
 pip install 'sit-toolkit[mcp]'
-sit-mcp-server
 ```
 
-```json
-{
-  "mcpServers": {
-    "sit": { "command": "sit-mcp-server" }
-  }
-}
-```
-</details>
+要求：
 
-<details>
-<summary>LLM Tool-Use schema</summary>
+- Python 3.10+
+- Git
+- 可选：支持 MCP 的编辑器或 agent runtime
 
-```python
-from sit.tool_use import get_tools_openai, get_tools_anthropic
+## 项目状态
 
-tools = get_tools_openai()      # OpenAI 格式
-tools = get_tools_anthropic()   # Anthropic 格式
-```
-</details>
-
-## CI 集成
-
-`sit init` 会生成 GitHub Actions workflow，自动验证、测试，并在 PR 中发布语义化摘要:
-
-```yaml
-- run: sit validate "$SIT_PACKAGE_DIR"
-- run: sit test "$SIT_PACKAGE_DIR"
-- run: sit test "$SIT_PACKAGE_DIR" --run
-- run: sit ci-summary "$SIT_PACKAGE_DIR" --compare origin/main..HEAD >> "$GITHUB_STEP_SUMMARY"
-```
+`sit` 当前聚焦本地 CLI 和 agent 集成闭环。它不替换 Git 的存储、分支、远端或 merge。Git 仍然是事实来源；`sit` 在 Git 之上增加 Skill-aware validation、semantic review、version gate 和 release artifacts。
 
 ## 许可证
 
