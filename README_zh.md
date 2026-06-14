@@ -1,7 +1,11 @@
 # sit
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/OpenRaiser/Sit/main/.github/assets/brand/sit-logo-horizontal-concept.png" alt="sit semantic safety for AI skills" width="640">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/OpenRaiser/Sit/main/.github/assets/brand/sit-logo-horizontal-concept-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/OpenRaiser/Sit/main/.github/assets/brand/sit-logo-horizontal-concept-light.png">
+    <img src="https://raw.githubusercontent.com/OpenRaiser/Sit/main/.github/assets/brand/sit-logo-horizontal-concept-light.png" alt="sit semantic safety for AI skills" width="640">
+  </picture>
 </p>
 
 [English](README.md) | [中文](README_zh.md)
