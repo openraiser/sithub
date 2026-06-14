@@ -1,5 +1,3 @@
-# sit
-
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/OpenRaiser/Sit/main/.github/assets/brand/sit-logo-horizontal-concept-dark.png">
