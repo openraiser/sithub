@@ -6,7 +6,22 @@
   </picture>
 </p>
 
-[English](README.md) | [中文](README_zh.md)
+<p align="center">
+  <a href="README.md">English</a> | <a href="README_zh.md">中文</a>
+</p>
+
+<p align="center">
+  <a href="#60-秒上手">快速开始</a> |
+  <a href="#为什么需要-sit">为什么需要 sit</a> |
+  <a href="https://github.com/xxllovemkm/paper-webpage-builder">真实案例</a> |
+  <a href="#为-agent-设计">Agent 闭环</a> |
+  <a href="https://pypi.org/project/sit-toolkit/">PyPI</a> |
+  <a href="https://github.com/OpenRaiser/Sit/releases">Releases</a>
+</p>
+
+<p align="center">
+  <strong>真实案例：</strong>查看 <a href="https://github.com/xxllovemkm/paper-webpage-builder">paper-webpage-builder</a> 如何用 Skill 风格组织 prompts、schemas、scripts 和 golden 行为检查。
+</p>
 
 **给会修改 prompt、schema、脚本和 Skill 包的 AI agent 准备的 Git 原生安全层。**
 

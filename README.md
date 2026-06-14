@@ -6,7 +6,22 @@
   </picture>
 </p>
 
-[English](README.md) | [中文](README_zh.md)
+<p align="center">
+  <a href="README.md">English</a> | <a href="README_zh.md">中文</a>
+</p>
+
+<p align="center">
+  <a href="#60-second-demo">Quick Start</a> |
+  <a href="#why-sit">Why sit?</a> |
+  <a href="https://github.com/xxllovemkm/paper-webpage-builder">Real Case</a> |
+  <a href="#designed-for-agents">Agent Loop</a> |
+  <a href="https://pypi.org/project/sit-toolkit/">PyPI</a> |
+  <a href="https://github.com/OpenRaiser/Sit/releases">Releases</a>
+</p>
+
+<p align="center">
+  <strong>Real case:</strong> see how <a href="https://github.com/xxllovemkm/paper-webpage-builder">paper-webpage-builder</a> uses Skill-style prompts, schemas, scripts, and golden behavior checks.
+</p>
 
 **A Git-native safety layer for AI agents that edit prompts, schemas, scripts, and Skill packages.**
 
