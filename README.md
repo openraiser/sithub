@@ -1,5 +1,9 @@
 # sit
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/OpenRaiser/Sit/main/.github/assets/brand/sit-logo-horizontal.svg" alt="sit semantic safety for AI skills" width="640">
+</p>
+
 [English](README.md) | [中文](README_zh.md)
 
 **A Git-native safety layer for AI agents that edit prompts, schemas, scripts, and Skill packages.**
@@ -14,7 +18,7 @@ sit review HEAD..WORKTREE
 
 Use `sit` when humans or AI agents evolve reusable skills and you need semantic diffs, golden tests, version gates, PR reviews, and reproducible releases without replacing Git.
 
-![sit turns Git diffs into Skill review signals](https://raw.githubusercontent.com/OpenRaiser/Sit/main/.github/assets/sit-case-showcase.png)
+![sit turns raw Git diffs into semantic Skill review signals](https://raw.githubusercontent.com/OpenRaiser/Sit/main/.github/assets/brand/sit-readme-hero-flat.png)
 
 ## Why sit?
 
@@ -39,6 +43,8 @@ Golden tests: pass
 ```
 
 The example above comes from a real package, `paper-webpage-builder`, where an agent-facing paper webpage Skill changed its output contract and expected behavior. `sit` turned the change into a reviewable PR signal instead of leaving reviewers to infer intent from raw diffs.
+
+![paper-webpage-builder case: Git sees lines, sit sees behavior](https://raw.githubusercontent.com/OpenRaiser/Sit/main/.github/assets/brand/sit-case-paper-webpage-builder-flat.png)
 
 ## 60-second demo
 
@@ -86,6 +92,8 @@ Git remains the storage and history layer. `sit` adds the semantic layer: packag
 ## Designed for agents
 
 `sit` gives agents a concrete loop after they edit a Skill:
+
+![sit agent safety loop](https://raw.githubusercontent.com/OpenRaiser/Sit/main/.github/assets/brand/sit-agent-loop-flat.png)
 
 ```bash
 git status --short

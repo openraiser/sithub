@@ -1,0 +1,16 @@
+<svg width="1080" height="360" viewBox="0 0 1080 360" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">sit horizontal logo</title>
+  <desc id="desc">The sit logo mark with wordmark and semantic safety tagline.</desc>
+  <rect width="1080" height="360" fill="#F8FAFC"/>
+  <g transform="translate(72 48) scale(0.515625)">
+    <rect x="56" y="40" width="400" height="400" rx="92" fill="#111827"/>
+    <path d="M56 132C56 81.19 97.19 40 148 40H364C414.81 40 456 81.19 456 132V336C456 374.28 432.35 408.59 396.59 422.25L287.37 463.96C267.14 471.69 244.76 471.69 224.53 463.96L115.39 422.25C79.65 408.59 56 374.28 56 336V132Z" stroke="#2563EB" stroke-width="32" stroke-linejoin="round"/>
+    <path d="M178 150H306C348.53 150 383 184.47 383 227C383 269.53 348.53 304 306 304H216C183.97 304 158 329.97 158 362" stroke="#2563EB" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="178" cy="150" r="38" fill="#111827" stroke="#2563EB" stroke-width="28"/>
+    <circle cx="306" cy="304" r="38" fill="#111827" stroke="#2563EB" stroke-width="28"/>
+    <circle cx="158" cy="362" r="38" fill="#111827" stroke="#2563EB" stroke-width="28"/>
+    <path d="M307 370L352 415L431 318" stroke="#10B981" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="380" y="190" fill="#111827" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="138" font-weight="800" letter-spacing="0">sit</text>
+  <text x="388" y="252" fill="#475569" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="34" font-weight="500" letter-spacing="0">semantic safety for AI skills</text>
+</svg>
