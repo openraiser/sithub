@@ -4,6 +4,15 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Tag or ref to build, for example v0.23.0"
+        required: true
+        type: string
+
+env:
+  RELEASE_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref_name }}
 
 permissions:
   contents: write
@@ -30,6 +39,8 @@ jobs:
             artifact: sit-windows-x86_64.exe
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.RELEASE_REF }}
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -73,5 +84,6 @@ jobs:
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_REF }}
           generate_release_notes: true
           files: binaries/*/*
