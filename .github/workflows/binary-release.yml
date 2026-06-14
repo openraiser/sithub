@@ -20,7 +20,7 @@ jobs:
             os: macos-latest
             artifact: sit-macos-arm64
           - target: macos-x86_64
-            os: macos-13
+            os: macos-15-intel
             artifact: sit-macos-x86_64
           - target: linux-x86_64
             os: ubuntu-latest
