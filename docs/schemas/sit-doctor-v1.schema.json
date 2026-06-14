@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openraiser.github.io/sit/schemas/sit-doctor-v1.schema.json",
+  "title": "sit.doctor.v1",
+  "type": "object",
+  "required": ["schema_version", "status", "ok", "package", "checks"],
+  "properties": {
+    "schema_version": { "const": "sit.doctor.v1" },
+    "status": { "enum": ["pass", "warn", "fail"] },
+    "ok": { "type": "boolean" },
+    "package": {
+      "type": "object",
+      "required": ["name", "version", "root", "manifest"],
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" },
+        "root": { "type": "string" },
+        "manifest": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "status", "message", "details"],
+        "properties": {
+          "name": { "type": "string" },
+          "status": { "enum": ["pass", "warn", "fail"] },
+          "message": { "type": "string" },
+          "details": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

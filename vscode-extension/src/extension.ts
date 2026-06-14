@@ -24,6 +24,9 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("sithub.validate", () => runValidate()),
     vscode.commands.registerCommand("sithub.test", () => runTest()),
     vscode.commands.registerCommand("sithub.diffHead", () => runDiff()),
+    vscode.commands.registerCommand("sithub.diffStaged", () => runDiffStaged()),
+    vscode.commands.registerCommand("sithub.review", () => runReview()),
+    vscode.commands.registerCommand("sithub.report", () => runReport()),
     vscode.commands.registerCommand("sithub.refreshStatus", () => refreshStatus())
   );
 
@@ -59,6 +62,20 @@ async function runTest(): Promise<void> {
 async function runDiff(): Promise<void> {
   const range = vscode.workspace.getConfiguration("sithub").get<string>("defaultDiffRange", "HEAD~1..HEAD");
   await runJsonCommand(`Diff ${range}`, ["diff", range, "--format", "json"], summarizeDiff);
+}
+
+async function runDiffStaged(): Promise<void> {
+  await runJsonCommand("Diff Staged", ["diff", "--staged", "--format", "json"], summarizeDiff);
+}
+
+async function runReview(): Promise<void> {
+  const range = vscode.workspace.getConfiguration("sithub").get<string>("defaultReviewRange", "HEAD..WORKTREE");
+  await runJsonCommand(`Review ${range}`, ["review", range, "--format", "json"], summarizeReview);
+}
+
+async function runReport(): Promise<void> {
+  const range = vscode.workspace.getConfiguration("sithub").get<string>("defaultReviewRange", "HEAD..WORKTREE");
+  await runJsonCommand(`Report ${range}`, ["report", ".", "--compare", range, "--format", "json"], summarizeReport);
 }
 
 async function refreshStatus(): Promise<void> {
@@ -154,6 +171,33 @@ function summarizeDiff(payload: any): string[] {
   }
   if (events.length > 20) {
     lines.push(`... ${events.length - 20} more events`);
+  }
+  return lines;
+}
+
+function summarizeReview(payload: any): string[] {
+  const lines = [
+    `status: ${payload.review?.status ?? "unknown"}`,
+    `recommendation: ${payload.review?.recommendation ?? "<none>"}`,
+    `risk: ${payload.risk ?? "unknown"}`,
+    `suggested bump: ${payload.suggested_bump ?? "unknown"}`
+  ];
+  const reasons = Array.isArray(payload.review?.reasons) ? payload.review.reasons : [];
+  for (const reason of reasons) {
+    lines.push(`- ${reason}`);
+  }
+  return lines;
+}
+
+function summarizeReport(payload: any): string[] {
+  const lines = [
+    `package: ${payload.package?.name ?? "<unknown>"}@${payload.package?.version ?? "<unknown>"}`,
+    `validation: ${payload.validation?.status ?? "unknown"}`,
+    `golden tests: ${payload.golden_tests?.status ?? "unknown"}`
+  ];
+  if (payload.diff) {
+    lines.push(`risk: ${payload.diff.risk ?? "unknown"}`);
+    lines.push(`suggested bump: ${payload.diff.suggested_bump ?? "unknown"}`);
   }
   return lines;
 }

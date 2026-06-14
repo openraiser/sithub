@@ -2,10 +2,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass
-import io
 from pathlib import Path
-import subprocess
-import tarfile
 import tempfile
 from typing import Iterator
 import hashlib
@@ -14,6 +11,7 @@ from .diff import PackageDiff, diff_packages
 from .errors import SitError
 from .git import git_output, git_root
 from .package import SkillPackage, load_package
+from .snapshot import archive_ref
 
 BUMP_ORDER = {"none": 0, "patch": 1, "minor": 2, "major": 3}
 
@@ -215,7 +213,7 @@ def load_head_package(package: SkillPackage) -> Iterator[SkillPackage | None]:
 
     package_subpath = package.root.relative_to(repo_root)
     with tempfile.TemporaryDirectory(prefix="sit-gate-") as tmp:
-        snapshot_root = _archive_ref(repo_root, "HEAD", Path(tmp) / "head")
+        snapshot_root = archive_ref(repo_root, "HEAD", Path(tmp) / "head")
         baseline_path = snapshot_root / package_subpath
         if not (baseline_path / "skill.yaml").exists():
             yield None
@@ -288,32 +286,3 @@ def _has_head(path: Path) -> bool:
     except SitError:
         return False
     return True
-
-
-def _archive_ref(repo_root: Path, ref: str, destination: Path) -> Path:
-    destination.mkdir(parents=True, exist_ok=True)
-    command = ["git", "archive", "--format=tar", ref]
-    try:
-        completed = subprocess.run(command, cwd=repo_root, check=False, capture_output=True)
-    except FileNotFoundError as exc:
-        raise SitError("git executable not found") from exc
-
-    if completed.returncode != 0:
-        message = completed.stderr.decode("utf-8", errors="replace").strip()
-        raise SitError(f"git archive failed for {ref}" + (f": {message}" if message else ""))
-
-    with tarfile.open(fileobj=io.BytesIO(completed.stdout), mode="r:") as archive:
-        _safe_extract(archive, destination)
-    return destination
-
-
-def _safe_extract(archive: tarfile.TarFile, destination: Path) -> None:
-    destination = destination.resolve()
-    for member in archive.getmembers():
-        target = (destination / member.name).resolve()
-        if target != destination and destination not in target.parents:
-            raise SitError(f"Unsafe path in git archive: {member.name}")
-    try:
-        archive.extractall(destination, filter="data")
-    except TypeError:
-        archive.extractall(destination)

@@ -126,6 +126,52 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "sit_diff_range",
+        "description": (
+            "Semantic diff for a Git range in a sit skill package, such as main..HEAD, "
+            "HEAD..WORKTREE, or HEAD..STAGED."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "package_path": {
+                    "type": "string",
+                    "description": "Path to the skill package directory or skill.yaml file.",
+                },
+                "range": {
+                    "type": "string",
+                    "description": "Git range to compare. Default: HEAD..WORKTREE.",
+                    "default": "HEAD..WORKTREE",
+                },
+                "include_text_diffs": {
+                    "type": "boolean",
+                    "description": "Include full unified diff lines in text_diffs. Default: false.",
+                },
+            },
+            "required": ["package_path"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "sit_diff_staged",
+        "description": "Semantic diff between HEAD and the currently staged Git index.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "package_path": {
+                    "type": "string",
+                    "description": "Path to the skill package directory or skill.yaml file.",
+                },
+                "include_text_diffs": {
+                    "type": "boolean",
+                    "description": "Include full unified diff lines in text_diffs. Default: false.",
+                },
+            },
+            "required": ["package_path"],
+            "additionalProperties": False,
+        },
+    },
+    {
         "name": "sit_review",
         "description": (
             "Generate a PR-ready Skill review for a package change. "
@@ -145,6 +191,44 @@ TOOLS: list[dict[str, Any]] = [
                 },
             },
             "required": ["baseline_path", "current_path"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "sit_review_range",
+        "description": (
+            "Generate a PR-ready Skill review for a Git range, such as main..HEAD, "
+            "HEAD..WORKTREE, or HEAD..STAGED."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "package_path": {
+                    "type": "string",
+                    "description": "Path to the skill package directory or skill.yaml file.",
+                },
+                "range": {
+                    "type": "string",
+                    "description": "Git range to compare. Default: HEAD..WORKTREE.",
+                    "default": "HEAD..WORKTREE",
+                },
+            },
+            "required": ["package_path"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "sit_review_staged",
+        "description": "Generate a PR-ready Skill review for the currently staged Git index.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "package_path": {
+                    "type": "string",
+                    "description": "Path to the skill package directory or skill.yaml file.",
+                },
+            },
+            "required": ["package_path"],
             "additionalProperties": False,
         },
     },

@@ -73,7 +73,7 @@ sit release minor . --bundle
 |---|---|
 | **Auto-discovery** | `sit onboard --agent` — one-command setup for Codex, Claude Code, Cursor, etc. |
 | **Python SDK** | `from sit.sdk import Sit` — direct API calls |
-| **MCP Server** | `pip install 'sit-toolkit[mcp]'` — 7 tools over stdio |
+| **MCP Server** | `pip install 'sit-toolkit[mcp]'` — 12 tools over stdio |
 | **LLM Tool-Use** | `from sit.tool_use import get_tools_openai` — OpenAI & Anthropic schemas |
 
 <details>

@@ -93,7 +93,7 @@ def dependency_warnings_for_commit(package: SkillPackage) -> list[str]:
 
 def find_reverse_dependencies(package: SkillPackage, *, workspace: Path | None = None) -> dict[str, Any]:
     workspace = workspace or package.root.parent
-    records = []
+    records: list[dict[str, Any]] = []
     if not workspace.exists() or not workspace.is_dir():
         return _reverse_payload(records)
 

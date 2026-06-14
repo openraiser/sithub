@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openraiser.github.io/sit/schemas/sit-diff-v1.schema.json",
+  "title": "sit.diff.v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "old",
+    "new",
+    "changed",
+    "breaking",
+    "risk",
+    "suggested_bump",
+    "messages",
+    "events",
+    "text_diffs"
+  ],
+  "properties": {
+    "schema_version": { "const": "sit.diff.v1" },
+    "old": { "$ref": "#/$defs/package_ref" },
+    "new": { "$ref": "#/$defs/package_ref" },
+    "changed": { "type": "boolean" },
+    "breaking": { "type": "boolean" },
+    "risk": { "enum": ["no-change", "review-required", "breaking-change"] },
+    "suggested_bump": { "enum": ["patch", "minor", "major"] },
+    "messages": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "events": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/event" }
+    },
+    "text_diffs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/text_diff" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "package_ref": {
+      "type": "object",
+      "required": ["name", "version", "root", "manifest"],
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" },
+        "root": { "type": "string" },
+        "manifest": { "type": "string" },
+        "source": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "event": {
+      "type": "object",
+      "required": ["category", "severity", "changed", "breaking", "additive", "message"],
+      "properties": {
+        "category": { "type": "string" },
+        "severity": { "enum": ["info", "changed", "additive", "breaking"] },
+        "changed": { "type": "boolean" },
+        "breaking": { "type": "boolean" },
+        "additive": { "type": "boolean" },
+        "message": { "type": "string" },
+        "details": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "text_diff": {
+      "type": "object",
+      "required": [
+        "kind",
+        "name",
+        "old_path",
+        "new_path",
+        "added_lines",
+        "removed_lines",
+        "headings",
+        "variables",
+        "summary"
+      ],
+      "properties": {
+        "kind": { "type": "string" },
+        "name": { "type": "string" },
+        "old_path": { "type": "string" },
+        "new_path": { "type": "string" },
+        "added_lines": { "type": "integer" },
+        "removed_lines": { "type": "integer" },
+        "headings": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "variables": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "summary": { "type": "string" },
+        "lines": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openraiser.github.io/sit/schemas/sit-deps-v1.schema.json",
+  "title": "sit.deps.v1",
+  "type": "object",
+  "required": ["schema_version", "status", "ok", "warnings", "dependencies", "message"],
+  "properties": {
+    "schema_version": { "const": "sit.deps.v1" },
+    "status": { "enum": ["pass", "warn", "fail"] },
+    "ok": { "type": "boolean" },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "dependencies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "path", "version", "status", "version_range", "ok", "warnings", "errors", "risk"],
+        "properties": {
+          "name": { "type": "string" },
+          "path": { "type": "string" },
+          "version": { "type": ["string", "null"] },
+          "status": { "type": ["string", "null"] },
+          "version_range": { "type": ["string", "null"] },
+          "ok": { "type": "boolean" },
+          "warnings": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "errors": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "risk": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "message": { "type": "string" }
+  },
+  "additionalProperties": false
+}

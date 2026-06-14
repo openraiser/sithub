@@ -32,6 +32,9 @@ Open a folder containing `skill.yaml`, then run:
 - `SitHub: Validate`
 - `SitHub: Test`
 - `SitHub: Diff HEAD~1..HEAD`
+- `SitHub: Diff Staged`
+- `SitHub: Review`
+- `SitHub: Report`
 - `SitHub: Refresh Status`
 
 Results are written to the `SitHub` Output Channel.
@@ -43,6 +46,9 @@ Results are written to the `SitHub` Output Channel.
 - Calls `sit validate`.
 - Calls `sit test --format json`.
 - Calls `sit diff <range> --format json`.
+- Calls `sit diff --staged --format json`.
+- Calls `sit review <range> --format json`.
+- Calls `sit report . --compare <range> --format json`.
 - Shows a status bar item with current package/version and validation/test state when available.
 
 ## Manual Verification
@@ -75,7 +81,10 @@ In VS Code:
 6. Run `SitHub: Validate`.
 7. Run `SitHub: Test`.
 8. Run `SitHub: Diff HEAD~1..HEAD`.
-9. Confirm the `SitHub` Output Channel shows command output and the status bar reflects validation/test state.
+9. Run `SitHub: Diff Staged`.
+10. Run `SitHub: Review`.
+11. Run `SitHub: Report`.
+12. Confirm the `SitHub` Output Channel shows command output and the status bar reflects validation/test state.
 
 ## Packaging Decision
 

@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openraiser.github.io/sit/schemas/sit-review-v1.schema.json",
+  "title": "sit.review.v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "baseline",
+    "current",
+    "validation",
+    "golden_tests",
+    "risk",
+    "suggested_bump",
+    "diff",
+    "prompt_reference_summary",
+    "review",
+    "artifact_summary"
+  ],
+  "properties": {
+    "schema_version": { "const": "sit.review.v1" },
+    "baseline": { "$ref": "#/$defs/package_ref" },
+    "current": { "$ref": "#/$defs/package_ref" },
+    "validation": { "$ref": "#/$defs/check_result" },
+    "golden_tests": { "$ref": "#/$defs/test_result" },
+    "risk": { "enum": ["no-change", "review-required", "breaking-change"] },
+    "suggested_bump": { "enum": ["patch", "minor", "major"] },
+    "diff": { "type": "object" },
+    "prompt_reference_summary": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "review": {
+      "type": "object",
+      "required": ["status", "recommendation", "reasons"],
+      "properties": {
+        "status": { "enum": ["approve", "needs-review", "needs-maintainer-review", "block"] },
+        "recommendation": { "type": "string" },
+        "reasons": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "artifact_summary": {
+      "type": "object",
+      "required": ["total_events", "categories"],
+      "properties": {
+        "total_events": { "type": "integer" },
+        "categories": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["category", "count"],
+            "properties": {
+              "category": { "type": "string" },
+              "count": { "type": "integer" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "package_ref": {
+      "type": "object",
+      "required": ["name", "version", "root", "manifest"],
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" },
+        "root": { "type": "string" },
+        "manifest": { "type": "string" },
+        "source": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "check_result": {
+      "type": "object",
+      "required": ["status", "ok", "messages"],
+      "properties": {
+        "status": { "enum": ["pass", "fail"] },
+        "ok": { "type": "boolean" },
+        "messages": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "test_result": {
+      "type": "object",
+      "required": ["status", "ok", "messages"],
+      "properties": {
+        "status": { "enum": ["pass", "fail", "skipped"] },
+        "ok": { "type": ["boolean", "null"] },
+        "messages": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

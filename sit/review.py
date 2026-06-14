@@ -72,7 +72,7 @@ def render_skill_review_markdown(
             lines.append(f"- `{category['category']}`: {category['count']} event(s)")
 
     lines.extend(["", "### Semantic Diff", ""])
-    events = diff.get("events", [])
+    events = _semantic_review_events(diff)
     if not events:
         lines.append("- <none>")
     for event in events:
@@ -145,7 +145,7 @@ def _review_decision(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _artifact_summary(data: dict[str, Any]) -> dict[str, Any]:
-    events = data.get("diff", {}).get("events", [])
+    events = _semantic_review_events(data.get("diff", {}))
     counts = Counter(event.get("category", "unknown") for event in events)
     return {
         "total_events": len(events),
@@ -154,6 +154,17 @@ def _artifact_summary(data: dict[str, Any]) -> dict[str, Any]:
             for category, count in sorted(counts.items(), key=lambda item: (item[0], item[1]))
         ],
     }
+
+
+def _semantic_review_events(diff: dict[str, Any]) -> list[dict[str, Any]]:
+    events = diff.get("events", [])
+    if not isinstance(events, list):
+        return []
+    return [
+        event
+        for event in events
+        if isinstance(event, dict) and event.get("category") not in {"package", "risk"}
+    ]
 
 
 def _default_diff_command(baseline: dict[str, Any], current: dict[str, Any]) -> str:
@@ -169,4 +180,3 @@ def _event_detail_lines(event: dict[str, Any]) -> list[str]:
     if not isinstance(details, dict):
         return []
     return render_script_details(details, indent="")
-

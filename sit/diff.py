@@ -439,25 +439,25 @@ def _diff_schema_properties(
     old_property_names = set(old_properties)
     new_property_names = set(new_properties)
 
-    for field in sorted(new_property_names - old_property_names):
-        marker = "required" if field in new_required else "optional"
-        field_path = _join_schema_path(path, field)
-        result.add(f"SCHEMA {name} property added {field_path} ({marker})", changed=True, breaking=field in new_required)
-    for field in sorted(old_property_names - new_property_names):
-        field_path = _join_schema_path(path, field)
+    for prop_name in sorted(new_property_names - old_property_names):
+        marker = "required" if prop_name in new_required else "optional"
+        field_path = _join_schema_path(path, prop_name)
+        result.add(f"SCHEMA {name} property added {field_path} ({marker})", changed=True, breaking=prop_name in new_required)
+    for prop_name in sorted(old_property_names - new_property_names):
+        field_path = _join_schema_path(path, prop_name)
         result.add(f"SCHEMA {name} property removed {field_path}", breaking=True)
 
-    for field in sorted(old_property_names & new_property_names):
-        field_path = _join_schema_path(path, field)
-        _diff_schema_node(result, name, old_properties[field], new_properties[field], path=field_path, old_root=old_root, new_root=new_root)
+    for prop_name in sorted(old_property_names & new_property_names):
+        field_path = _join_schema_path(path, prop_name)
+        _diff_schema_node(result, name, old_properties[prop_name], new_properties[prop_name], path=field_path, old_root=old_root, new_root=new_root)
 
-    for field in sorted(new_required - old_required):
-        if field in old_properties:
-            field_path = _join_schema_path(path, field)
+    for prop_name in sorted(new_required - old_required):
+        if prop_name in old_properties:
+            field_path = _join_schema_path(path, prop_name)
             result.add(f"SCHEMA {name} property became required {field_path}", breaking=True)
-    for field in sorted(old_required - new_required):
-        if field in new_properties:
-            field_path = _join_schema_path(path, field)
+    for prop_name in sorted(old_required - new_required):
+        if prop_name in new_properties:
+            field_path = _join_schema_path(path, prop_name)
             result.add(f"SCHEMA {name} property became optional {field_path}", changed=True)
 
 
@@ -544,7 +544,9 @@ def _diff_lower_bound(
         return
 
     label = _schema_label(path)
-    breaking = _is_number(old_value) and _is_number(new_value) and new_value > old_value
+    breaking = False
+    if isinstance(old_value, (int, float)) and not isinstance(old_value, bool) and isinstance(new_value, (int, float)) and not isinstance(new_value, bool):
+        breaking = new_value > old_value
     if old_value is None and new_value is not None:
         breaking = True
     result.add(f"SCHEMA {name} constraint changed {label}.{key}: {_short(old_value)} -> {_short(new_value)}", changed=True, breaking=breaking)
@@ -565,7 +567,9 @@ def _diff_upper_bound(
         return
 
     label = _schema_label(path)
-    breaking = _is_number(old_value) and _is_number(new_value) and new_value < old_value
+    breaking = False
+    if isinstance(old_value, (int, float)) and not isinstance(old_value, bool) and isinstance(new_value, (int, float)) and not isinstance(new_value, bool):
+        breaking = new_value < old_value
     if old_value is None and new_value is not None:
         breaking = True
     result.add(f"SCHEMA {name} constraint changed {label}.{key}: {_short(old_value)} -> {_short(new_value)}", changed=True, breaking=breaking)
@@ -605,8 +609,9 @@ def _diff_schema_combinator(
     old_valid = isinstance(old_branches, list)
     new_valid = isinstance(new_branches, list)
     if old_branches is None:
+        branch_count = len(new_branches) if isinstance(new_branches, list) else "invalid"
         result.add(
-            f"SCHEMA {name} {key} added {label} ({len(new_branches) if new_valid else 'invalid'} branches)",
+            f"SCHEMA {name} {key} added {label} ({branch_count} branches)",
             changed=True,
             breaking=key in {"allOf", "anyOf"},
         )

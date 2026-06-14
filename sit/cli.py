@@ -8,48 +8,41 @@ from pathlib import Path
 from . import __version__
 from .agent_config import setup_agent_config, render_agent_setup_text
 from .ci import render_ci_summary
+from .cli_git import (
+    auto_bump_version as _auto_bump_version,
+    check_staged_version_gate as _check_staged_version_gate,
+    git_hook_path as _git_hook_path,
+    git_short_hash as _git_short_hash,
+    hook_package_arg as _hook_package_arg,
+    is_git_passthrough as _is_git_passthrough,
+    print_add_gate_hints as _print_add_gate_hints,
+    print_gate_hint as _print_gate_hint,
+    print_git_failure_hint as _print_git_failure_hint,
+    should_run_golden_tests as _should_run_golden_tests,
+    undo_bump_on_commit_failure as _undo_bump_on_commit_failure,
+)
+from .cli_render import (
+    ci_compare_spec as _ci_compare_spec,
+    print_path_group as _print_path_group,
+    render_diff as _render_diff,
+    render_pr_summary as _render_pr_summary,
+    write_ci_artifacts as _write_ci_artifacts,
+)
 from .deps import check_dependencies, dependency_warnings_for_commit, render_deps_text
 from .doctor import build_doctor_payload, render_doctor_text
 from .diff import diff_packages
 from .errors import SitError
-from .gate import check_version_gate, check_version_gate_against_head, format_gate_failure, invalidate_gate_cache
-from .git import git_output, git_root, run_git
+from .gate import check_version_gate, check_version_gate_against_head, format_gate_failure
+from .git import git_root, run_git
 from .init import init_package
 from .info import build_info_payload, render_info_text
 from .onboard import onboard_existing_skill, render_onboard_text, render_standardize_text, standardize_skill_package
 from .package import load_package
 from .release import release_package
-from .ref import load_compare_package, load_package_pair, parse_git_range
-from .report import build_report, build_report_payload, render_report_html, render_report_markdown
+from .ref import load_compare_package, load_package_pair, load_staged_package, parse_git_range
+from .report import build_report, build_report_payload, render_report_html
 from .review import build_skill_review_payload, render_skill_review_markdown
-from .script_summary import render_script_details
-from .summary import build_pr_summary, build_pr_summary_payload, build_pr_summary_text
-from .validate import build_test_payload, run_golden_schema_tests, validate_package
-
-GIT_PASSTHROUGH_COMMANDS = {"add", "push", "pull", "branch", "checkout", "log"}
-
-SIT_SUBCOMMANDS = {
-    "init", "status", "info", "doctor", "deps", "onboard", "standardize",
-    "validate", "test", "diff", "report", "ci-summary", "pr-summary",
-    "review", "release", "commit", "undo", "install-hooks", "_hook-pre-commit", "help",
-}
-
-
-def _is_git_passthrough(argv: list[str]) -> bool:
-    """Return True if argv[0] should be passed through to git.
-
-    Strategy: anything that is NOT a known sit subcommand and doesn't start
-    with '-' is treated as a git command. This makes sit a full drop-in git
-    wrapper with noise filtering.
-    """
-    if not argv:
-        return False
-    cmd = argv[0]
-    if cmd.startswith("-"):
-        return False
-    if cmd in SIT_SUBCOMMANDS:
-        return False
-    return True
+from .validate import CheckResult, build_test_payload, run_golden_schema_tests, validate_package
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -439,37 +432,40 @@ def cmd_hook_pre_commit(args: argparse.Namespace) -> int:
     except SitError as exc:
         if "git archive failed for HEAD" not in str(exc):
             raise
-        package = load_package(args.package)
-        validation = validate_package(package)
-        if not validation.ok:
-            for message in validation.messages:
-                print(message)
-            raise SitError("pre-commit blocked: validation failed")
-        tests = run_golden_schema_tests(package)
-        if not tests.ok:
-            for message in tests.messages:
-                print(message)
-            raise SitError("pre-commit blocked: golden tests failed")
-        print("pre-commit gate: skipped (no HEAD baseline)")
+        with load_staged_package(args.package) as staged:
+            validation = validate_package(staged)
+            if not validation.ok:
+                for message in validation.messages:
+                    print(message)
+                raise SitError("pre-commit blocked: validation failed")
+            tests = run_golden_schema_tests(staged)
+            if not tests.ok:
+                for message in tests.messages:
+                    print(message)
+                raise SitError("pre-commit blocked: golden tests failed")
+            print("pre-commit gate: skipped (no HEAD baseline)")
     return 0
 
 
-def _git_hook_path(repo_root: Path, hook_name: str) -> Path:
-    try:
-        hook = git_output(["rev-parse", "--git-path", f"hooks/{hook_name}"], cwd=repo_root)
-    except SitError:
-        return repo_root / ".git" / "hooks" / hook_name
-    hook_path = Path(hook)
-    if not hook_path.is_absolute():
-        hook_path = repo_root / hook_path
-    return hook_path
+def _validate_staged_for_commit(args: argparse.Namespace, package) -> CheckResult:
+    with load_staged_package(args.package) as staged:
+        validation = validate_package(staged)
+        if not validation.ok:
+            for message in validation.messages:
+                print(message)
+            raise SitError("commit blocked: validation failed")
 
-
-def _hook_package_arg(repo_root: Path, package_root: Path) -> str:
-    try:
-        return package_root.relative_to(repo_root).as_posix() or "."
-    except ValueError:
-        return package_root.as_posix()
+        if not args.no_test:
+            if not _should_run_golden_tests(package):
+                if not getattr(args, "quiet", False):
+                    print("golden tests: skipped (no prompt/schema/test/script changes)")
+            else:
+                tests = run_golden_schema_tests(staged)
+                if not tests.ok:
+                    for message in tests.messages:
+                        print(message)
+                    raise SitError("commit blocked: golden tests failed")
+        return validation
 
 
 def cmd_git(args: argparse.Namespace) -> int:
@@ -482,81 +478,21 @@ def cmd_git(args: argparse.Namespace) -> int:
     return result
 
 
-def _print_git_failure_hint(command: str) -> None:
-    hints = {
-        "commit": "sit commit runs Skill validation, tests, and version gates before committing.",
-        "push": "run `sit status` or `sit review main..HEAD` before pushing a Skill change.",
-        "add": "run `git status --short` to inspect paths, then `sit diff --staged` after staging.",
-        "pull": "after pulling, run `sit validate` and `sit test` if Skill files changed.",
-    }
-    hint = hints.get(command, "this was passed through to Git; rerun with `git " + command + "` for raw Git behavior.")
-    print(f"sit: hint: {hint}", file=sys.stderr)
-
-
-def _print_add_gate_hints() -> None:
-    """After staging files, give a cheap semantic hint without full package diff."""
-    try:
-        staged = git_output(["diff", "--cached", "--name-only"])
-    except Exception:
-        return
-    if not staged:
-        return
-
-    paths = staged.splitlines()
-    semantic = [path for path in paths if _is_semantic_staged_path(path)]
-    if semantic:
-        print(f"staged {len(paths)} file(s); {len(semantic)} semantic path(s) may affect Skill behavior")
-        for path in semantic[:4]:
-            print(f"  {path}")
-        if len(semantic) > 4:
-            print(f"  ... and {len(semantic) - 4} more")
-        print("run `sit diff --staged` for exact semantic impact")
-    else:
-        print(f"staged {len(paths)} file(s); no obvious Skill semantic paths")
-
-
-def _is_semantic_staged_path(path: str) -> bool:
-    normalized = path.replace("\\", "/").lower()
-    if normalized in {"skill.yaml", "skill.yml", "deps.yaml", "deps.yml"}:
-        return True
-    if normalized.endswith("/skill.yaml") or normalized.endswith("/skill.yml"):
-        return True
-    return any(
-        part in normalized.split("/")
-        for part in {"prompts", "schemas", "tests", "scripts", "assets", "references"}
-    )
-
-
 def cmd_commit(args: argparse.Namespace) -> int:
     if not args.no_verify:
         package = load_package(args.package)
-        validation = validate_package(package)
-        if not validation.ok:
-            for message in validation.messages:
-                print(message)
-            raise SitError("commit blocked: validation failed")
-
-        if not args.no_test:
-            if not _should_run_golden_tests(package):
-                if not getattr(args, "quiet", False):
-                    print("golden tests: skipped (no prompt/schema/test/script changes)")
-            else:
-                tests = run_golden_schema_tests(package)
-                if not tests.ok:
-                    for message in tests.messages:
-                        print(message)
-                    raise SitError("commit blocked: golden tests failed")
+        validation = _validate_staged_for_commit(args, package)
 
         if not args.no_version_gate:
             bump_snapshot: str | None = None
             if args.bump:
-                gate_pre = check_version_gate_against_head(package)
+                gate_pre = _check_staged_version_gate(args.package)
                 if not gate_pre.ok:
                     bump_snapshot = package.manifest_path.read_text(encoding="utf-8")
                     _auto_bump_version(package, args.bump)
                     package = load_package(args.package)
 
-            gate = check_version_gate_against_head(package)
+            gate = _check_staged_version_gate(args.package)
             if not gate.ok:
                 if bump_snapshot is not None:
                     package.manifest_path.write_text(bump_snapshot, encoding="utf-8")
@@ -596,58 +532,6 @@ def cmd_commit(args: argparse.Namespace) -> int:
     return result
 
 
-def _auto_bump_version(package, bump: str) -> None:
-    """Bump version in skill.yaml and stage the change."""
-    import re
-    manifest = package.manifest_path
-    text = manifest.read_text(encoding="utf-8")
-    old_version = package.version or "0.0.0"
-    new_version = _compute_bumped_version(old_version, bump)
-    new_text = re.sub(
-        r"^(version:\s*).*$",
-        f"\\g<1>{new_version}",
-        text,
-        count=1,
-        flags=re.MULTILINE,
-    )
-    manifest.write_text(new_text, encoding="utf-8")
-    run_git(["add", str(manifest)], check=False)
-    invalidate_gate_cache()
-    print(f"auto-bumped version: {old_version} -> {new_version}")
-
-
-def _undo_bump_on_commit_failure(package) -> None:
-    """Rollback the auto-bumped skill.yaml when git commit fails."""
-    try:
-        run_git(["checkout", "--", str(package.manifest_path)], check=False)
-        print("auto-bump rolled back (commit failed)")
-    except Exception:
-        pass
-
-
-def _should_run_golden_tests(package) -> bool:
-    """Check if staged files touch prompts/schemas/tests/scripts (smart-skip)."""
-    from .git import git_output as _git_out
-    try:
-        staged = _git_out(["diff", "--cached", "--name-only"], cwd=package.root)
-    except Exception:
-        return True
-    if not staged:
-        return True
-
-    trigger_prefixes = ("prompts/", "schemas/", "tests/", "scripts/")
-    trigger_files = ("skill.yaml",)
-    for path in staged.splitlines():
-        path_lower = path.lower()
-        if any(path_lower.startswith(prefix) for prefix in trigger_prefixes):
-            return True
-        if path_lower in trigger_files:
-            return True
-        if path_lower.endswith("skill.md"):
-            return True
-    return False
-
-
 def cmd_undo(args: argparse.Namespace) -> int:
     """Undo the last commit (soft reset by default, preserving changes in working tree)."""
     from .git import git_output as _git_out
@@ -676,36 +560,6 @@ def cmd_undo(args: argparse.Namespace) -> int:
     if not args.hard:
         print("changes preserved in working tree (use --hard to discard)")
     return 0
-
-
-def _compute_bumped_version(version: str, bump: str) -> str:
-    parts = version.split(".")
-    if len(parts) != 3:
-        parts = ["0", "0", "0"]
-    major, minor, patch = int(parts[0]), int(parts[1]), int(parts[2])
-    if bump == "major":
-        return f"{major + 1}.0.0"
-    elif bump == "minor":
-        return f"{major}.{minor + 1}.0"
-    else:
-        return f"{major}.{minor}.{patch + 1}"
-
-
-def _print_gate_hint(gate) -> None:
-    """Print a short actionable hint when the gate blocks."""
-    if gate.diff is not None:
-        events = [e for e in gate.diff.events if e.category not in {"package", "risk"}]
-        if events:
-            print(f"hint: {len(events)} semantic changes detected. Use --bump {gate.required_bump} to auto-fix.")
-
-
-def _git_short_hash(path) -> str:
-    """Get the current HEAD short hash."""
-    from .git import git_output as _git_out
-    try:
-        return _git_out(["rev-parse", "--short", "HEAD"], cwd=path)
-    except Exception:
-        return "??????"
 
 
 def cmd_pr_summary(args: argparse.Namespace) -> int:
@@ -918,148 +772,6 @@ def _build_parser() -> argparse.ArgumentParser:
     undo.set_defaults(func=cmd_undo)
 
     return parser
-
-
-def _print_path_group(title: str, paths: dict[str, Path]) -> None:
-    print(f"{title}:")
-    if not paths:
-        print("  <none>")
-        return
-    for name, path in paths.items():
-        marker = "exists" if path.exists() else "missing"
-        print(f"  {name}: {marker} {path}")
-
-
-def _ci_compare_spec(args: argparse.Namespace) -> str | None:
-    if args.compare and (args.baseline_ref or args.head_ref):
-        raise SitError("Use either --compare or --baseline-ref/--head-ref, not both")
-    if args.compare:
-        return args.compare
-    if args.baseline_ref or args.head_ref:
-        return f"{args.baseline_ref or 'origin/main'}..{args.head_ref or 'HEAD'}"
-    return None
-
-
-def _write_ci_artifacts(directory: Path, payload: dict, summary: str) -> None:
-    directory.mkdir(parents=True, exist_ok=True)
-    (directory / "sit-summary.md").write_text(summary, encoding="utf-8")
-    (directory / "sit-report.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    (directory / "sit-report.md").write_text(render_report_markdown(payload), encoding="utf-8")
-    (directory / "sit-report.html").write_text(render_report_html(payload), encoding="utf-8")
-
-
-def _render_diff(
-    result,
-    old,
-    new,
-    output_format: str,
-    *,
-    old_source: str | None = None,
-    new_source: str | None = None,
-    show_prompt_diff: bool = False,
-) -> str:
-    if output_format == "json":
-        return json.dumps(
-            result.to_dict(old, new, old_source=old_source, new_source=new_source, include_text_diffs=show_prompt_diff),
-            ensure_ascii=False,
-            indent=2,
-        ) + "\n"
-    if output_format == "markdown":
-        lines = [
-            "## Skill Diff",
-            "",
-            f"- Baseline: `{_format_package_ref(old, old_source)}`",
-            f"- Current: `{_format_package_ref(new, new_source)}`",
-            f"- Risk: `{result.risk}`",
-            f"- Suggested version bump: `{result.suggested_bump}`",
-            "",
-            "### Events",
-            "",
-        ]
-        for event in result.events:
-            lines.append(f"- `{event.message}`")
-            lines.extend(f"  - `{detail}`" for detail in _event_detail_lines(event))
-        if result.text_diffs:
-            lines.extend(["", "### Prompt/Reference Text Summary", ""])
-            lines.extend(f"- `{text_diff.summary}`" for text_diff in result.text_diffs)
-        if show_prompt_diff and result.text_diffs:
-            lines.extend(["", "### Prompt/Reference Unified Diff", ""])
-            for text_diff in result.text_diffs:
-                lines.extend([f"#### {text_diff.kind}: {text_diff.name}", "", "```diff"])
-                lines.extend(text_diff.lines)
-                lines.extend(["```", ""])
-        return "\n".join(lines) + "\n"
-    if output_format == "plain":
-        lines = []
-        for event in result.events:
-            lines.append(event.message)
-            lines.extend(_event_detail_lines(event))
-        if show_prompt_diff and result.text_diffs:
-            lines.extend(["", "Prompt/Reference Unified Diff:"])
-            for text_diff in result.text_diffs:
-                lines.append(f"--- {text_diff.kind}: {text_diff.name}")
-                lines.extend(text_diff.lines)
-        return "\n".join(lines) + "\n"
-
-    lines = [
-        "Skill Diff",
-        f"Baseline: {_format_package_ref(old, old_source)}",
-        f"Current: {_format_package_ref(new, new_source)}",
-        f"Risk: {result.risk}",
-        f"Suggested version bump: {result.suggested_bump}",
-        "",
-    ]
-    grouped: dict[str, list[str]] = {}
-    for event in result.events:
-        grouped.setdefault(event.category, []).append(event.message)
-    for category in sorted(grouped):
-        lines.append(f"[{category}]")
-        for event in sorted((event for event in result.events if event.category == category), key=lambda item: item.message):
-            lines.append(f"  - {event.message}")
-            lines.extend(f"    {detail}" for detail in _event_detail_lines(event))
-        lines.append("")
-    if result.text_diffs:
-        lines.extend(["Prompt/Reference Text Summary:"])
-        lines.extend(text_diff.summary for text_diff in result.text_diffs)
-    if show_prompt_diff and result.text_diffs:
-        lines.extend(["", "Prompt/Reference Unified Diff:"])
-        for text_diff in result.text_diffs:
-            lines.append(f"--- {text_diff.kind}: {text_diff.name}")
-            lines.extend(text_diff.lines)
-    return "\n".join(lines) + "\n"
-
-
-def _format_package_ref(package, source: str | None = None) -> str:
-    ref = f"{package.name or '<unknown>'}@{package.version or '<unknown>'}"
-    return f"{ref} ({source})" if source else ref
-
-
-def _event_detail_lines(event) -> list[str]:
-    details = getattr(event, "details", None)
-    if not isinstance(details, dict):
-        return []
-    return render_script_details(details, indent="")
-
-
-def _render_pr_summary(
-    old,
-    new,
-    output_format: str,
-    *,
-    current_spec: str | None = None,
-    diff_command: str | None = None,
-    baseline_source: str | None = None,
-    current_source: str | None = None,
-) -> str:
-    if output_format == "json":
-        return json.dumps(
-            build_pr_summary_payload(old, new, baseline_source=baseline_source, current_source=current_source),
-            ensure_ascii=False,
-            indent=2,
-        ) + "\n"
-    if output_format == "text":
-        return build_pr_summary_text(old, new)
-    return build_pr_summary(old, new, current_spec=current_spec, diff_command=diff_command)
 
 
 if __name__ == "__main__":

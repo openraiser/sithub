@@ -260,7 +260,7 @@ def _release_note_lines(*, gate: VersionGateResult | None, validation, tests, co
 
 
 def _group_release_events(gate: VersionGateResult | None) -> dict[str, list[str]]:
-    groups = {"breaking": [], "changes": [], "fixes": []}
+    groups: dict[str, list[str]] = {"breaking": [], "changes": [], "fixes": []}
     if gate is None or gate.diff is None:
         return groups
 

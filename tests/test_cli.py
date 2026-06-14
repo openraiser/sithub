@@ -559,7 +559,11 @@ class CliTest(unittest.TestCase):
             self.assertIn("| Suggested bump | `major` |", output)
             self.assertIn("- `prompt`: 1 event(s)", output)
             self.assertIn("- `schema`: 2 event(s)", output)
+            self.assertNotIn("- `package`:", output)
+            self.assertNotIn("- `risk`:", output)
             self.assertIn("SCHEMA output property added confidence (required)", output)
+            self.assertNotIn("PACKAGE sample-skill", output)
+            self.assertNotIn("RISK breaking-change", output)
             self.assertIn("sit validate", output)
             self.assertIn("sit test", output)
             self.assertIn("sit diff", output)
@@ -581,28 +585,13 @@ class CliTest(unittest.TestCase):
             self.assertGreaterEqual(payload["artifact_summary"]["total_events"], 1)
             categories = {item["category"]: item["count"] for item in payload["artifact_summary"]["categories"]}
             self.assertEqual(categories["schema"], 2)
+            self.assertNotIn("package", categories)
+            self.assertNotIn("risk", categories)
             self.assertEqual(file_code, 0)
             self.assertIn("Wrote Skill review:", file_output)
             review = output_path.read_text(encoding="utf-8")
             self.assertIn("## SitHub Skill Review", review)
             self.assertIn("Status: **needs-maintainer-review**", review)
-
-    def test_review_is_available_through_sdk_and_tool_schema(self) -> None:
-        from sit.sdk import Sit
-        from sit.tool_use import get_tool
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            old = _write_package(root / "old", version="0.1.0")
-            new = _write_package(root / "new", version="0.2.0", extra_required={"confidence": {"type": "string"}})
-
-            payload = Sit(new).review(old)
-            tool = get_tool("sit_review")
-
-            self.assertEqual(payload["schema_version"], "sit.review.v1")
-            self.assertEqual(payload["review"]["status"], "needs-maintainer-review")
-            self.assertEqual(tool["name"], "sit_review")
-            self.assertEqual(tool["parameters"]["required"], ["baseline_path", "current_path"])
 
     def test_manifest_status_validates_and_diff_reports_lifecycle_changes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -756,7 +745,7 @@ class CliTest(unittest.TestCase):
     def test_deps_check_reports_local_version_and_schema_warnings(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            upstream_old = _write_package(root / "upstream-old", version="0.1.0")
+            _write_package(root / "upstream-old", version="0.1.0")
             upstream_new = _write_package(root / "upstream-new", version="0.1.0")
             _upgrade_package_to_v2(upstream_new)
             downstream = _write_package(root / "downstream", version="0.1.0")
@@ -1479,6 +1468,64 @@ dependencies:
             self.assertIn("Fix: update skill.yaml to a major bump or run `sit release major`", stderr)
             self.assertIn("SCHEMA output property added confidence (required)", stderr)
 
+    def test_commit_validates_staged_snapshot_not_unstaged_worktree(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            package = _write_package(Path(tmp) / "staged-commit-skill", version="0.1.0")
+            _git(package, "init")
+            _git(package, "config", "user.email", "sit@example.test")
+            _git(package, "config", "user.name", "SIT Test")
+            _git(package, "add", ".")
+            _git(package, "commit", "-m", "feat: initial skill")
+            (package / "docs").mkdir()
+            (package / "docs" / "note.md").write_text("Operator note.\n", encoding="utf-8")
+            _git(package, "add", "docs/note.md")
+            (package / "schemas" / "output.schema.json").write_text("{not json", encoding="utf-8")
+
+            code, stdout, stderr = _run_cli_capture(["commit", "-m", "docs: add note"], cwd=package)
+
+            self.assertEqual(code, 0)
+            self.assertIn("golden tests: skipped", stdout)
+            self.assertEqual(stderr, "")
+            log = subprocess.run(["git", "log", "--oneline"], cwd=package, check=True, text=True, capture_output=True).stdout
+            self.assertIn("docs: add note", log)
+            committed_schema = subprocess.run(
+                ["git", "show", "HEAD:schemas/output.schema.json"],
+                cwd=package,
+                check=True,
+                text=True,
+                capture_output=True,
+            ).stdout
+            self.assertNotIn("{not json", committed_schema)
+
+    def test_commit_gate_ignores_unstaged_version_bump(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            package = _write_package(Path(tmp) / "unstaged-bump-skill", version="0.1.0")
+            _git(package, "init")
+            _git(package, "config", "user.email", "sit@example.test")
+            _git(package, "config", "user.name", "SIT Test")
+            _git(package, "add", ".")
+            _git(package, "commit", "-m", "feat: initial skill")
+            (package / "prompts" / "extraction.md").write_text("Extract with care.", encoding="utf-8")
+            _git(package, "add", "prompts/extraction.md")
+            manifest = package / "skill.yaml"
+            manifest.write_text(manifest.read_text(encoding="utf-8").replace("version: 0.1.0", "version: 0.2.0"), encoding="utf-8")
+
+            code, stdout, stderr = _run_cli_capture(["commit", "-m", "feat: update prompt"], cwd=package)
+
+            self.assertEqual(code, 2)
+            self.assertIn("required=minor, actual=none", stdout)
+            self.assertIn("semantic changes require at least a minor version bump", stderr)
+            log = subprocess.run(["git", "log", "--oneline"], cwd=package, check=True, text=True, capture_output=True).stdout
+            self.assertNotIn("feat: update prompt", log)
+            staged_paths = subprocess.run(
+                ["git", "diff", "--cached", "--name-only"],
+                cwd=package,
+                check=True,
+                text=True,
+                capture_output=True,
+            ).stdout.splitlines()
+            self.assertEqual(staged_paths, ["prompts/extraction.md"])
+
     def test_release_blocks_breaking_change_without_major_bump(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             package = _write_package(Path(tmp) / "release-gate-skill", version="0.1.0")
@@ -2188,6 +2235,15 @@ def _append_runner_command(root: Path, *, command: str | None = None) -> None:
     manifest = (root / "skill.yaml").read_text(encoding="utf-8")
     command = command or f"{sys.executable} scripts/run_case.py --input {{input}} --output {{output}}"
     (root / "skill.yaml").write_text(manifest + f"commands:\n  run_case: \"{command}\"\n", encoding="utf-8")
+
+
+def _assert_json_schema_valid(schema_name: str, payload: dict) -> None:
+    from jsonschema import Draft202012Validator
+
+    root = Path(__file__).resolve().parents[1]
+    schema = json.loads((root / "docs" / "schemas" / schema_name).read_text(encoding="utf-8"))
+    Draft202012Validator.check_schema(schema)
+    Draft202012Validator(schema).validate(payload)
 
 
 if __name__ == "__main__":

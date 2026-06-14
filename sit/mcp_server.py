@@ -16,8 +16,6 @@ Usage::
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from typing import Any
 
 try:
@@ -30,7 +28,7 @@ except ImportError:
         "Install it with: pip install 'sit-toolkit[mcp]' or pip install mcp"
     )
 
-from .sdk import Sit
+from .mcp_handler import error_payload, handle_tool
 
 # ---------------------------------------------------------------------------
 # Tool definitions
@@ -132,6 +130,52 @@ TOOLS: list[Tool] = [
         },
     ),
     Tool(
+        name="sit_diff_range",
+        description=(
+            "Semantic diff for a Git range in a sit skill package, such as main..HEAD, "
+            "HEAD..WORKTREE, or HEAD..STAGED."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "package_path": {
+                    "type": "string",
+                    "description": "Path to the skill package directory or skill.yaml file.",
+                },
+                "range": {
+                    "type": "string",
+                    "description": "Git range to compare (default: HEAD..WORKTREE).",
+                    "default": "HEAD..WORKTREE",
+                },
+                "include_text_diffs": {
+                    "type": "boolean",
+                    "description": "Include full unified diff lines in text_diffs (default: false).",
+                    "default": False,
+                },
+            },
+            "required": ["package_path"],
+        },
+    ),
+    Tool(
+        name="sit_diff_staged",
+        description="Semantic diff between HEAD and the currently staged Git index.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "package_path": {
+                    "type": "string",
+                    "description": "Path to the skill package directory or skill.yaml file.",
+                },
+                "include_text_diffs": {
+                    "type": "boolean",
+                    "description": "Include full unified diff lines in text_diffs (default: false).",
+                    "default": False,
+                },
+            },
+            "required": ["package_path"],
+        },
+    ),
+    Tool(
         name="sit_review",
         description=(
             "Generate a PR-ready Skill review for a package change. "
@@ -151,6 +195,42 @@ TOOLS: list[Tool] = [
                 },
             },
             "required": ["baseline_path", "current_path"],
+        },
+    ),
+    Tool(
+        name="sit_review_range",
+        description=(
+            "Generate a PR-ready Skill review for a Git range, such as main..HEAD, "
+            "HEAD..WORKTREE, or HEAD..STAGED."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "package_path": {
+                    "type": "string",
+                    "description": "Path to the skill package directory or skill.yaml file.",
+                },
+                "range": {
+                    "type": "string",
+                    "description": "Git range to compare (default: HEAD..WORKTREE).",
+                    "default": "HEAD..WORKTREE",
+                },
+            },
+            "required": ["package_path"],
+        },
+    ),
+    Tool(
+        name="sit_review_staged",
+        description="Generate a PR-ready Skill review for the currently staged Git index.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "package_path": {
+                    "type": "string",
+                    "description": "Path to the skill package directory or skill.yaml file.",
+                },
+            },
+            "required": ["package_path"],
         },
     ),
     Tool(
@@ -221,41 +301,6 @@ TOOLS: list[Tool] = [
 # Handler
 # ---------------------------------------------------------------------------
 
-def _handle_tool(name: str, arguments: dict[str, Any]) -> str:
-    """Dispatch an MCP tool call to the SDK and return JSON string."""
-    try:
-        if name == "sit_info":
-            result = Sit(arguments["package_path"]).info()
-        elif name == "sit_validate":
-            result = Sit(arguments["package_path"]).validate()
-        elif name == "sit_test":
-            result = Sit(arguments["package_path"]).test(
-                run_actual=arguments.get("run_actual", False),
-                runner=arguments.get("runner"),
-                timeout=arguments.get("timeout", 30),
-            )
-        elif name == "sit_diff":
-            result = Sit(arguments["new_path"]).diff(
-                arguments["old_path"],
-                include_text_diffs=arguments.get("include_text_diffs", False),
-            )
-        elif name == "sit_review":
-            result = Sit(arguments["current_path"]).review(arguments["baseline_path"])
-        elif name == "sit_pr_summary":
-            result = Sit(arguments["current_path"]).pr_summary(arguments["baseline_path"])
-        elif name == "sit_report":
-            result = Sit(arguments["package_path"]).report(
-                compare=arguments.get("compare_path"),
-            )
-        elif name == "sit_doctor":
-            result = Sit(arguments["package_path"]).doctor()
-        else:
-            return json.dumps({"error": f"Unknown tool: {name}"})
-        return json.dumps(result, ensure_ascii=False, indent=2)
-    except Exception as exc:
-        return json.dumps({"error": f"{type(exc).__name__}: {exc}"})
-
-
 # ---------------------------------------------------------------------------
 # Server factory
 # ---------------------------------------------------------------------------
@@ -270,7 +315,10 @@ def create_server() -> Server:
 
     @server.call_tool()
     async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
-        result = _handle_tool(name, arguments)
+        try:
+            result = handle_tool(name, arguments)
+        except Exception as exc:
+            result = error_payload(name, exc)
         return [TextContent(type="text", text=result)]
 
     return server

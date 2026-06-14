@@ -25,14 +25,13 @@ from typing import Any
 
 from .diff import diff_packages
 from .doctor import build_doctor_payload
-from .errors import SitError
-from .gate import check_version_gate_against_head
 from .info import build_info_payload
 from .package import SkillPackage, load_package
 from .release import release_package
 from .report import build_report_payload
 from .review import build_skill_review_payload
 from .summary import build_pr_summary_payload
+from .ref import load_compare_package, load_package_pair
 from .validate import build_test_payload, validate_package
 
 
@@ -103,6 +102,29 @@ class Sit:
             include_text_diffs=include_text_diffs,
         )
 
+    def diff_range(
+        self,
+        git_range: str = "HEAD..WORKTREE",
+        *,
+        include_text_diffs: bool = False,
+    ) -> dict[str, Any]:
+        """Semantic diff for a Git range such as ``main..HEAD`` or ``HEAD..WORKTREE``."""
+        package = self._load()
+        with load_package_pair(git_range, cwd=package.root) as (old, new):
+            result = diff_packages(old, new)
+            old_source, new_source = _range_sources(git_range)
+            return result.to_dict(
+                old,
+                new,
+                old_source=old_source,
+                new_source=new_source,
+                include_text_diffs=include_text_diffs,
+            )
+
+    def diff_staged(self, *, include_text_diffs: bool = False) -> dict[str, Any]:
+        """Semantic diff for the currently staged Git index."""
+        return self.diff_range("HEAD..STAGED", include_text_diffs=include_text_diffs)
+
     def pr_summary(
         self,
         baseline: str | Path,
@@ -119,6 +141,18 @@ class Sit:
             baseline_source=baseline_source,
             current_source=current_source,
         )
+
+    def pr_summary_range(self, git_range: str = "HEAD..WORKTREE") -> dict[str, Any]:
+        """Build PR summary payload for a Git range."""
+        package = self._load()
+        with load_package_pair(git_range, cwd=package.root) as (old, new):
+            baseline_source, current_source = _range_sources(git_range)
+            return build_pr_summary_payload(
+                old,
+                new,
+                baseline_source=baseline_source,
+                current_source=current_source,
+            )
 
     def review(
         self,
@@ -137,6 +171,22 @@ class Sit:
             current_source=current_source,
         )
 
+    def review_range(self, git_range: str = "HEAD..WORKTREE") -> dict[str, Any]:
+        """Build PR-ready review payload for a Git range."""
+        package = self._load()
+        with load_package_pair(git_range, cwd=package.root) as (old, new):
+            baseline_source, current_source = _range_sources(git_range)
+            return build_skill_review_payload(
+                old,
+                new,
+                baseline_source=baseline_source,
+                current_source=current_source,
+            )
+
+    def review_staged(self) -> dict[str, Any]:
+        """Build PR-ready review payload for the currently staged Git index."""
+        return self.review_range("HEAD..STAGED")
+
     def report(
         self,
         *,
@@ -146,6 +196,9 @@ class Sit:
         compare_source: str | None = None,
     ) -> dict[str, Any]:
         """Build full report payload (``sit.report.v1`` contract)."""
+        if isinstance(compare, (str, Path)) and _is_git_range(str(compare)):
+            return self.report_range(str(compare))
+
         compare_pkg = self._load_other(compare) if compare else None
         return build_report_payload(
             self._load(),
@@ -155,6 +208,20 @@ class Sit:
             package_source=package_source,
             compare_source=compare_source,
         )
+
+    def report_range(self, git_range: str = "HEAD..WORKTREE") -> dict[str, Any]:
+        """Build full report payload for a Git range."""
+        package = self._load()
+        with load_compare_package(".", git_range, cwd=package.root) as (current, baseline):
+            baseline_source, current_source = _range_sources(git_range)
+            return build_report_payload(
+                current,
+                compare=baseline,
+                package_spec=".",
+                diff_command=f"python3 -m sit.cli diff {git_range}",
+                package_source=current_source,
+                compare_source=baseline_source,
+            )
 
     def doctor(self) -> dict[str, Any]:
         """Run environment diagnostics."""
@@ -201,9 +268,24 @@ def diff(old: str | Path, new: str | Path, **kwargs: Any) -> dict[str, Any]:
     return Sit(new).diff(old, **kwargs)
 
 
+def diff_range(package_path: str | Path, git_range: str = "HEAD..WORKTREE", **kwargs: Any) -> dict[str, Any]:
+    """Module-level convenience: ``sit.sdk.diff_range(path, range)``."""
+    return Sit(package_path).diff_range(git_range, **kwargs)
+
+
+def diff_staged(package_path: str | Path, **kwargs: Any) -> dict[str, Any]:
+    """Module-level convenience: ``sit.sdk.diff_staged(path)``."""
+    return Sit(package_path).diff_staged(**kwargs)
+
+
 def pr_summary(baseline: str | Path, current: str | Path, **kwargs: Any) -> dict[str, Any]:
     """Module-level convenience: ``sit.sdk.pr_summary(baseline, current)``."""
     return Sit(current).pr_summary(baseline, **kwargs)
+
+
+def pr_summary_range(package_path: str | Path, git_range: str = "HEAD..WORKTREE") -> dict[str, Any]:
+    """Module-level convenience: ``sit.sdk.pr_summary_range(path, range)``."""
+    return Sit(package_path).pr_summary_range(git_range)
 
 
 def review(baseline: str | Path, current: str | Path, **kwargs: Any) -> dict[str, Any]:
@@ -211,6 +293,32 @@ def review(baseline: str | Path, current: str | Path, **kwargs: Any) -> dict[str
     return Sit(current).review(baseline, **kwargs)
 
 
+def review_range(package_path: str | Path, git_range: str = "HEAD..WORKTREE") -> dict[str, Any]:
+    """Module-level convenience: ``sit.sdk.review_range(path, range)``."""
+    return Sit(package_path).review_range(git_range)
+
+
+def review_staged(package_path: str | Path) -> dict[str, Any]:
+    """Module-level convenience: ``sit.sdk.review_staged(path)``."""
+    return Sit(package_path).review_staged()
+
+
 def report(package_path: str | Path, **kwargs: Any) -> dict[str, Any]:
     """Module-level convenience: ``sit.sdk.report(path)``."""
     return Sit(package_path).report(**kwargs)
+
+
+def report_range(package_path: str | Path, git_range: str = "HEAD..WORKTREE") -> dict[str, Any]:
+    """Module-level convenience: ``sit.sdk.report_range(path, range)``."""
+    return Sit(package_path).report_range(git_range)
+
+
+def _is_git_range(value: str) -> bool:
+    return "..." not in value and value.count("..") == 1
+
+
+def _range_sources(value: str) -> tuple[str | None, str | None]:
+    if not _is_git_range(value):
+        return None, None
+    old, new = value.split("..", 1)
+    return old, new

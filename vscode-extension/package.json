@@ -22,6 +22,9 @@
     "onCommand:sithub.validate",
     "onCommand:sithub.test",
     "onCommand:sithub.diffHead",
+    "onCommand:sithub.diffStaged",
+    "onCommand:sithub.review",
+    "onCommand:sithub.report",
     "onCommand:sithub.refreshStatus"
   ],
   "main": "./out/extension.js",
@@ -42,6 +45,18 @@
       {
         "command": "sithub.diffHead",
         "title": "SitHub: Diff HEAD~1..HEAD"
+      },
+      {
+        "command": "sithub.diffStaged",
+        "title": "SitHub: Diff Staged"
+      },
+      {
+        "command": "sithub.review",
+        "title": "SitHub: Review"
+      },
+      {
+        "command": "sithub.report",
+        "title": "SitHub: Report"
       },
       {
         "command": "sithub.refreshStatus",
@@ -68,6 +83,11 @@
           "type": "string",
           "default": "HEAD~1..HEAD",
           "description": "Default Git range for SitHub semantic diff."
+        },
+        "sithub.defaultReviewRange": {
+          "type": "string",
+          "default": "HEAD..WORKTREE",
+          "description": "Default Git range for SitHub review and report commands."
         }
       }
     }

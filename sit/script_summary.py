@@ -97,19 +97,19 @@ def _summarize_python(text: str) -> dict[str, Any]:
         elif isinstance(node, ast.ClassDef):
             classes.append(node.name)
 
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            imports.extend(alias.name.split(".", 1)[0] for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            imports.append(node.module.split(".", 1)[0])
-        if _is_attr_call(node, "add_argument"):
-            cli_args.extend(_literal_string_args(node))
-        elif _is_subprocess_call(node):
-            command = _subprocess_command(node)
+    for walk_node in ast.walk(tree):
+        if isinstance(walk_node, ast.Import):
+            imports.extend(alias.name.split(".", 1)[0] for alias in walk_node.names)
+        elif isinstance(walk_node, ast.ImportFrom) and walk_node.module:
+            imports.append(walk_node.module.split(".", 1)[0])
+        if isinstance(walk_node, ast.Call) and _is_attr_call(walk_node, "add_argument"):
+            cli_args.extend(_literal_string_args(walk_node))
+        elif isinstance(walk_node, ast.Call) and _is_subprocess_call(walk_node):
+            command = _subprocess_command(walk_node)
             if command:
                 external_commands.append(command)
-        elif _is_shutil_which_call(node):
-            for arg in _literal_string_args(node):
+        elif isinstance(walk_node, ast.Call) and _is_shutil_which_call(walk_node):
+            for arg in _literal_string_args(walk_node):
                 external_commands.append(arg)
 
     data["imports"] = _dedupe(imports)[:12]
